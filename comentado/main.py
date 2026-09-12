@@ -15,6 +15,7 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
 # la evaluación, y su relación es la más ilustrativa, una agregación 1..N
 # donde borrar el todo no borra las partes. La opción 4 lo demuestra en vivo.
 
+import secrets
 import sqlite3
 from datetime import date
 
@@ -260,7 +261,17 @@ def main() -> None:
     # `Usuario` ya tiene scrypt, roles y permisos; falta la pantalla que
     # pregunte quién es. Va como ADMIN_RRHH porque el menú administra
     # empleados, que es el módulo protegido.
-    solicitante = Usuario("rrhh.admin", "Clave-RRHH-2026", Rol.ADMIN_RRHH)
+    #
+    # La clave es aleatoria y desechable, y antes era el literal
+    # "Clave-RRHH-2026" escrito aquí. La segunda auditoría lo marcó: una clave
+    # en el código fuente viaja al zip de la entrega y al repositorio. Nadie
+    # la verifica, porque sin login de este objeto solo se usa
+    # `tiene_permiso()`, así que una al azar sirve igual y no hay secreto que
+    # filtrar. El sufijo garantiza las cuatro familias de caracteres que pide
+    # `_validar_clave`: `token_urlsafe` puede no traer un dígito y el
+    # constructor rechazaría la clave una vez cada tantos arranques.
+    solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
+                          Rol.ADMIN_RRHH)
     print(MENU)
 
     # EL BUCLE QUE NO SE CAE: el try va DENTRO del while. Afuera, la primera

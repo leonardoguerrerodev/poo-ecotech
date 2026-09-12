@@ -7,6 +7,7 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
     python3 main.py
 """
 
+import secrets
 import sqlite3
 from datetime import date
 
@@ -194,7 +195,8 @@ def main() -> None:
         print(f"   ! No se pudo preparar la base de datos: {error}")
         return
 
-    solicitante = Usuario("rrhh.admin", "Clave-RRHH-2026", Rol.ADMIN_RRHH)
+    solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
+                          Rol.ADMIN_RRHH)
     print(MENU)
 
     while True:

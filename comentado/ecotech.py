@@ -23,6 +23,7 @@ Uso:
 # Todo es biblioteca estándar: nada que instalar.
 import csv
 import hashlib
+import os
 import re
 import secrets
 import sqlite3
@@ -39,8 +40,14 @@ from pathlib import Path
 # PATRON_CORREO es permisivo a propósito, una regex estricta rechaza correos
 # legítimos. PATRON_TELEFONO acepta el formato chileno con o sin prefijo
 # país; SEPARADORES se descarta antes de comparar.
+#
+# Permisivo no es todo: las clases negadas de PATRON_CORREO excluyen los
+# caracteres de control, `\x00-\x1f` y `\x7f`. Antes no lo hacían, y `\x1b`
+# no es `\s`, así que un correo con un escape de terminal pasaba la
+# validación. PATRON_TELEFONO y PATRON_USUARIO no los admiten por su propia
+# forma y no hizo falta tocarlos.
 
-PATRON_CORREO = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
 PATRON_USUARIO = re.compile(r"[a-z0-9._-]{3,20}")
 PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9]\d{8}")
 SEPARADORES = re.compile(r"[\s()\-.]")
@@ -50,14 +57,29 @@ SEPARADORES = re.compile(r"[\s()\-.]")
 # replicado como CHECK en la tabla.
 SALARIO_MAXIMO = 100_000_000
 
+# Los cinco caracteres con que una planilla empieza a interpretar una celda
+# como fórmula. Ver `sin_formula()`.
+INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
 
 # Una sola función para todo texto obligatorio. `campo` nombra lo que falló.
+#
+# El tercer rechazo salió de la segunda auditoría: los caracteres de control
+# se guardaban tal cual, y el menú vuelve a imprimir esos textos al listar la
+# dotación. Un nombre con `\x1b[2J` le borra la pantalla a quien lista, y uno
+# con `\x1b[1A` puede sobrescribir la línea de arriba y mentir sobre lo que
+# hay en la base. Es el mismo problema que el XSS en la web, en la terminal.
+#
+# Va aquí porque esta función es la única puerta de todo texto obligatorio:
+# nombre, dirección y las dos descripciones. Una guarda, cuatro campos.
 def texto(valor: str, campo: str, maximo: int = 120) -> str:
     limpio = valor.strip()
     if not limpio:
         raise ValueError(f"{campo} no puede estar vacío")
     if len(limpio) > maximo:
         raise ValueError(f"{campo} supera los {maximo} caracteres")
+    if any(ord(c) < 32 or ord(c) == 127 for c in limpio):
+        raise ValueError(f"{campo} contiene caracteres de control")
     return limpio
 
 
@@ -65,6 +87,19 @@ def texto(valor: str, campo: str, maximo: int = 120) -> str:
 # debe duplicar a la persona.
 def canonico(telefono: str) -> str:
     return SEPARADORES.sub("", telefono)[-9:]
+
+
+# INYECCIÓN DE FÓRMULAS EN CSV, el otro hallazgo de la segunda auditoría. Una
+# planilla evalúa la celda que empieza con `=`, `+`, `-` o `@`, así que un
+# empleado llamado `=HYPERLINK(...)` ejecuta algo en el computador de quien
+# abre el informe. El apóstrofo delante fuerza a leerla como texto.
+#
+# Se aplica al escribir y no al validar, igual que el HTML se escapa al
+# imprimir: un nombre puede empezar con guion legítimamente, y el problema no
+# es el dato sino quien lo interpreta. Guardar el apóstrofo en la base
+# ensuciaría el dato para siempre por culpa de un formato de salida.
+def sin_formula(valor: str) -> str:
+    return f"'{valor}" if valor.startswith(INICIOS_DE_FORMULA) else valor
 
 
 # Único punto de autorización; estaba duplicado y la auditoría lo llevó a
@@ -180,9 +215,25 @@ def conectar():
 
 
 # Idempotente por el `IF NOT EXISTS`: el menú la llama en cada arranque.
+#
+# El `chmod` salió de la segunda auditoría. SQLite crea el archivo con el
+# `umask` del equipo, que aquí es 0002, así que la base quedaba en 0664:
+# legible por cualquier usuario de la máquina y escribible por el grupo.
+# Adentro hay sueldos, y cuando la Unidad 3 escriba la tabla `usuario`
+# habrá hashes de claves. 0600 deja al dueño y a nadie más.
+#
+# Atrapa `OSError` en vez de dejarlo propagar porque `main.py` cubre el
+# arranque con `except sqlite3.Error`, que no es pariente de `OSError`: el
+# programa moriría con traceback, que es justo lo que el indicador 2.1.4.G.7
+# prohíbe. Un sistema de archivos que no soporte permisos no es razón para no
+# arrancar, pero sí para avisar.
 def crear_tablas() -> None:
     with conectar() as con:
         con.executescript(ESQUEMA)
+    try:
+        os.chmod(RUTA_ACTIVA, 0o600)
+    except OSError as error:
+        print(f"   ! No se pudo restringir los permisos de la base: {error}")
 
 
 # =====================================================================
@@ -645,23 +696,53 @@ class Usuario:
                 raise ValueError("La clave no cumple la política de seguridad")
             self.__hash_clave = self._hashear(clave, secrets.token_bytes(16))
 
+    # EL COSTO, y por qué este número. `n=2**14` era el ejemplo de la
+    # documentación de Python y la segunda auditoría lo marcó como bajo:
+    # OWASP pide hoy `2**17` como mínimo. Quedó en `2**16`, que son 67 MB y
+    # medio segundo por hash en este equipo, porque `2**17` haría la
+    # autoverificación notoriamente lenta de correr en la defensa.
+    #
+    # `maxmem` hay que pasarlo explícito: el límite por omisión de OpenSSL son
+    # 32 MB y `hashlib.scrypt` levanta `ValueError` sin él.
+    COSTO = (2**16, 8, 1)
+
     # SCRYPT Y NO SHA-256: SHA-256 es rápido, y rápido es lo peor para una
     # clave, porque una GPU prueba miles de millones por segundo. `scrypt` es
     # lento y caro en memoria, así que el hardware especializado pierde
-    # ventaja; n, r y p son el costo. La sal es aleatoria por usuario, para
-    # que dos claves iguales den hashes distintos y las tablas precalculadas
-    # no sirvan; se guarda junto al hash porque no es secreta.
-    @staticmethod
-    def _hashear(clave: str, sal: bytes) -> str:
-        h = hashlib.scrypt(clave.encode(), salt=sal, n=2**14, r=8, p=1, dklen=32)
-        return f"scrypt${sal.hex()}${h.hex()}"
+    # ventaja. La sal es aleatoria por usuario, para que dos claves iguales
+    # den hashes distintos y las tablas precalculadas no sirvan; se guarda
+    # junto al hash porque no es secreta.
+    #
+    # EL HASH GUARDA SU PROPIO COSTO, `scrypt$n$r$p$sal$hash`. Antes guardaba
+    # solo la sal, y con eso subir el costo mañana dejaría sin poder verificar
+    # todos los hashes de hoy, porque nada diría con qué parámetros se
+    # calcularon. Se hizo ahora porque es gratis: nada escribe todavía la
+    # tabla `usuario`, así que no hay un solo hash que migrar.
+    #
+    # `classmethod` y no `staticmethod` para leer `cls.COSTO`. El parámetro
+    # `costo` existe para que `verificar_clave` rehaga el hash con los
+    # parámetros que trae el guardado, no con los vigentes.
+    @classmethod
+    def _hashear(cls, clave: str, sal: bytes, costo=None) -> str:
+        n, r, p = costo or cls.COSTO
+        h = hashlib.scrypt(clave.encode(), salt=sal, n=n, r=r, p=p, dklen=32,
+                           maxmem=256 * 1024 * 1024)
+        return f"scrypt${n}${r}${p}${sal.hex()}${h.hex()}"
 
     # `compare_digest` y no `==`: la comparación normal corta en el primer
     # byte distinto, y el tiempo revela cuántos caracteres acertó el atacante.
+    #
+    # Comprueba el formato antes de confiar en él. Antes desempacaba en tres
+    # variables, así que un hash corrupto en la base reventaba con un
+    # `ValueError` de desempaque que no explicaba nada. Ahora el error dice
+    # qué pasó, y sigue siendo `ValueError`, así que el menú lo muestra igual.
     def verificar_clave(self, clave: str) -> bool:
-        _, sal_hex, hash_guardado = self.__hash_clave.split("$")
-        calculado = self._hashear(clave, bytes.fromhex(sal_hex)).split("$")[2]
-        return secrets.compare_digest(calculado, hash_guardado)
+        partes = self.__hash_clave.split("$")
+        if len(partes) != 6 or partes[0] != "scrypt":
+            raise ValueError("El hash almacenado no tiene el formato esperado")
+        n, r, p = (int(partes[1]), int(partes[2]), int(partes[3]))
+        calculado = self._hashear(clave, bytes.fromhex(partes[4]), (n, r, p))
+        return secrets.compare_digest(calculado.split("$")[5], partes[5])
 
     # Pide la clave actual, o quien tome una sesión abierta se queda la
     # cuenta. Valida la nueva primero para no gastar un hash caro en vano, y
@@ -730,13 +811,19 @@ class Informe:
         # `newline=""` es obligatorio o aparecen líneas en blanco. `OSError`
         # cubre disco lleno, permiso denegado y carpeta inexistente; devuelve
         # False en vez de propagar porque exportar es opcional.
+        #
+        # `sin_formula()` en cada celda es lo que impide que el nombre de un
+        # empleado se ejecute al abrir el informe. `csv.writer` escapa lo que
+        # rompe el FORMATO del archivo, no lo que la planilla interpreta
+        # después: son dos problemas distintos y hacen falta los dos.
         try:
             if formato == "csv":
                 with open(destino, "w", newline="", encoding="utf-8") as archivo:
                     escritor = csv.writer(archivo)
-                    escritor.writerow([self.__titulo,
+                    escritor.writerow([sin_formula(self.__titulo),
                                        self.__fecha_generacion.isoformat()])
-                    escritor.writerows([linea] for linea in self.__contenido)
+                    escritor.writerows([sin_formula(linea)]
+                                       for linea in self.__contenido)
             else:
                 with open(destino, "w", encoding="utf-8") as archivo:
                     archivo.write(self.obtener_texto())
@@ -796,6 +883,10 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: RegistroTiempo(hoy, 25, "x")), "más de 24 horas"
     assert _rechaza(lambda: Departamento("   ")), "nombre en blanco"
     assert _rechaza(lambda: Usuario("ana", "corta", Rol.EMPLEADO)), "clave corta"
+    # Los dos casos de la segunda auditoría: un escape de terminal por un
+    # campo de texto y otro por el correo, que la regex vieja dejaba pasar.
+    assert _rechaza(lambda: Departamento("Legal\x1b[2J")), "escape de terminal"
+    assert _rechaza(lambda: nueva("j\x1bbravo@ecotech.cl")), "correo con escape"
     # PermissionError y no ValueError: no autorizado no es lo mismo que mal
     # escrito, y el menú los distingue.
     assert _rechaza(lambda: nueva().obtener_salario(basico),
@@ -809,9 +900,21 @@ def _autoverificar() -> None:
     assert "Clave-RRHH-2026" not in str(admin.__dict__), "la clave quedó en claro"
     assert admin.tiene_permiso("informes")
     assert not basico.tiene_permiso("informes")
+    # El hash trae su costo escrito, así que subirlo mañana no deja hashes
+    # imposibles de verificar. Y un hash corrupto da un error explicado en vez
+    # de reventar al desempacar.
+    n, r, p = Usuario.COSTO
+    muestra = Usuario._hashear("Clave-Muestra-2026", secrets.token_bytes(16))
+    assert muestra.split("$")[:4] == ["scrypt", str(n), str(r), str(p)], \
+        "el hash no registra su costo"
+    sin_formato = Usuario("ana", "", Rol.EMPLEADO, hash_clave="basura")
+    assert _rechaza(lambda: sin_formato.verificar_clave("x")), "hash mal formado"
 
     # --- CRUD sobre las dos clases relacionadas, en orden
     crear_tablas()
+    # La base no puede quedar legible por otros usuarios del equipo: adentro
+    # hay sueldos. Si alguien saca el `chmod`, esta línea se cae.
+    assert oct(os.stat(RUTA_ACTIVA).st_mode)[-3:] == "600", "base legible por otros"
 
     dep = Departamento("Desarrollo Sostenible")
     id_dep = dep.guardar(admin)                                     # C
@@ -864,14 +967,30 @@ def _autoverificar() -> None:
     assert "Legal" in salida and "Juanita" in salida
     assert _rechaza(lambda: Informe.generar("X", [], basico), PermissionError)
 
+    # --- La exportación no entrega fórmulas a la planilla
+    # Las dos primeras celdas salen con apóstrofo y la tercera intacta: la
+    # neutralización tiene que tocar solo lo que la planilla interpretaría.
+    # La última línea repite la prueba de path traversal de la primera
+    # auditoría, ahora dentro de la autoverificación y no a mano.
+    informe = Informe("Dotación", ["=1+1", "@SUM(A1:A9)", "Juanita Bravo"])
+    assert informe.exportar("dotacion.csv")
+    filas = Path("dotacion.csv").read_text(encoding="utf-8").splitlines()
+    assert filas[1] == "'=1+1" and filas[2] == "'@SUM(A1:A9)", "fórmula sin neutralizar"
+    assert filas[3] == "Juanita Bravo", "se tocó un valor que no era fórmula"
+    assert _rechaza(lambda: informe.exportar("../fuga.csv")), "path traversal"
+
 
 # `TemporaryDirectory` borra la carpeta y la base al salir del `with`, incluso
 # si un assert falla en el medio.
+#
+# El `chdir` es para la prueba del CSV: `exportar()` solo escribe dentro de
+# `Path.cwd()`, así que sin esto el informe de prueba caería en la carpeta del
+# proyecto. Con el cambio de directorio cae en la temporal y se borra sola.
 if __name__ == "__main__":
-    import os
     import tempfile
 
     with tempfile.TemporaryDirectory() as carpeta:
         usar_base(os.path.join(carpeta, "autoverificacion.db"))
+        os.chdir(carpeta)
         _autoverificar()
     print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento")

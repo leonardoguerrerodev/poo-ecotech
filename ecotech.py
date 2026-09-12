@@ -15,6 +15,7 @@ Uso:
 
 import csv
 import hashlib
+import os
 import re
 import secrets
 import sqlite3
@@ -28,12 +29,14 @@ from pathlib import Path
 # 1. VALIDACIONES Y AUTORIZACIÓN COMPARTIDAS
 # =====================================================================
 
-PATRON_CORREO = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
 PATRON_USUARIO = re.compile(r"[a-z0-9._-]{3,20}")
 PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9]\d{8}")
 SEPARADORES = re.compile(r"[\s()\-.]")
 
 SALARIO_MAXIMO = 100_000_000
+
+INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
 def texto(valor: str, campo: str, maximo: int = 120) -> str:
@@ -42,11 +45,17 @@ def texto(valor: str, campo: str, maximo: int = 120) -> str:
         raise ValueError(f"{campo} no puede estar vacío")
     if len(limpio) > maximo:
         raise ValueError(f"{campo} supera los {maximo} caracteres")
+    if any(ord(c) < 32 or ord(c) == 127 for c in limpio):
+        raise ValueError(f"{campo} contiene caracteres de control")
     return limpio
 
 
 def canonico(telefono: str) -> str:
     return SEPARADORES.sub("", telefono)[-9:]
+
+
+def sin_formula(valor: str) -> str:
+    return f"'{valor}" if valor.startswith(INICIOS_DE_FORMULA) else valor
 
 
 def autorizar(solicitante: "Usuario", modulo: str) -> None:
@@ -134,6 +143,10 @@ def conectar():
 def crear_tablas() -> None:
     with conectar() as con:
         con.executescript(ESQUEMA)
+    try:
+        os.chmod(RUTA_ACTIVA, 0o600)
+    except OSError as error:
+        print(f"   ! No se pudo restringir los permisos de la base: {error}")
 
 
 # =====================================================================
@@ -500,15 +513,22 @@ class Usuario:
                 raise ValueError("La clave no cumple la política de seguridad")
             self.__hash_clave = self._hashear(clave, secrets.token_bytes(16))
 
-    @staticmethod
-    def _hashear(clave: str, sal: bytes) -> str:
-        h = hashlib.scrypt(clave.encode(), salt=sal, n=2**14, r=8, p=1, dklen=32)
-        return f"scrypt${sal.hex()}${h.hex()}"
+    COSTO = (2**16, 8, 1)
+
+    @classmethod
+    def _hashear(cls, clave: str, sal: bytes, costo=None) -> str:
+        n, r, p = costo or cls.COSTO
+        h = hashlib.scrypt(clave.encode(), salt=sal, n=n, r=r, p=p, dklen=32,
+                           maxmem=256 * 1024 * 1024)
+        return f"scrypt${n}${r}${p}${sal.hex()}${h.hex()}"
 
     def verificar_clave(self, clave: str) -> bool:
-        _, sal_hex, hash_guardado = self.__hash_clave.split("$")
-        calculado = self._hashear(clave, bytes.fromhex(sal_hex)).split("$")[2]
-        return secrets.compare_digest(calculado, hash_guardado)
+        partes = self.__hash_clave.split("$")
+        if len(partes) != 6 or partes[0] != "scrypt":
+            raise ValueError("El hash almacenado no tiene el formato esperado")
+        n, r, p = (int(partes[1]), int(partes[2]), int(partes[3]))
+        calculado = self._hashear(clave, bytes.fromhex(partes[4]), (n, r, p))
+        return secrets.compare_digest(calculado.split("$")[5], partes[5])
 
     def cambiar_clave(self, actual: str, nueva: str) -> bool:
         if not self._validar_clave(nueva):
@@ -559,9 +579,10 @@ class Informe:
             if formato == "csv":
                 with open(destino, "w", newline="", encoding="utf-8") as archivo:
                     escritor = csv.writer(archivo)
-                    escritor.writerow([self.__titulo,
+                    escritor.writerow([sin_formula(self.__titulo),
                                        self.__fecha_generacion.isoformat()])
-                    escritor.writerows([linea] for linea in self.__contenido)
+                    escritor.writerows([sin_formula(linea)]
+                                       for linea in self.__contenido)
             else:
                 with open(destino, "w", encoding="utf-8") as archivo:
                     archivo.write(self.obtener_texto())
@@ -613,6 +634,8 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: RegistroTiempo(hoy, 25, "x")), "más de 24 horas"
     assert _rechaza(lambda: Departamento("   ")), "nombre en blanco"
     assert _rechaza(lambda: Usuario("ana", "corta", Rol.EMPLEADO)), "clave corta"
+    assert _rechaza(lambda: Departamento("Legal\x1b[2J")), "escape de terminal"
+    assert _rechaza(lambda: nueva("j\x1bbravo@ecotech.cl")), "correo con escape"
     assert _rechaza(lambda: nueva().obtener_salario(basico),
                     PermissionError), "salario sin permiso"
 
@@ -622,9 +645,16 @@ def _autoverificar() -> None:
     assert "Clave-RRHH-2026" not in str(admin.__dict__), "la clave quedó en claro"
     assert admin.tiene_permiso("informes")
     assert not basico.tiene_permiso("informes")
+    n, r, p = Usuario.COSTO
+    muestra = Usuario._hashear("Clave-Muestra-2026", secrets.token_bytes(16))
+    assert muestra.split("$")[:4] == ["scrypt", str(n), str(r), str(p)], \
+        "el hash no registra su costo"
+    sin_formato = Usuario("ana", "", Rol.EMPLEADO, hash_clave="basura")
+    assert _rechaza(lambda: sin_formato.verificar_clave("x")), "hash mal formado"
 
     # --- CRUD sobre las dos clases relacionadas
     crear_tablas()
+    assert oct(os.stat(RUTA_ACTIVA).st_mode)[-3:] == "600", "base legible por otros"
 
     dep = Departamento("Desarrollo Sostenible")
     id_dep = dep.guardar(admin)                                     # C
@@ -665,12 +695,20 @@ def _autoverificar() -> None:
     assert "Legal" in salida and "Juanita" in salida
     assert _rechaza(lambda: Informe.generar("X", [], basico), PermissionError)
 
+    # --- La exportación no entrega fórmulas a la planilla
+    informe = Informe("Dotación", ["=1+1", "@SUM(A1:A9)", "Juanita Bravo"])
+    assert informe.exportar("dotacion.csv")
+    filas = Path("dotacion.csv").read_text(encoding="utf-8").splitlines()
+    assert filas[1] == "'=1+1" and filas[2] == "'@SUM(A1:A9)", "fórmula sin neutralizar"
+    assert filas[3] == "Juanita Bravo", "se tocó un valor que no era fórmula"
+    assert _rechaza(lambda: informe.exportar("../fuga.csv")), "path traversal"
+
 
 if __name__ == "__main__":
-    import os
     import tempfile
 
     with tempfile.TemporaryDirectory() as carpeta:
         usar_base(os.path.join(carpeta, "autoverificacion.db"))
+        os.chdir(carpeta)
         _autoverificar()
     print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento")
