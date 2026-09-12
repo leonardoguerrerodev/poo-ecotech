@@ -68,7 +68,7 @@
           <mxGeometry height="24" width="460" y="158" as="geometry" />
         </mxCell>
         <mxCell id="n22" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Departamento" vertex="1">
-          <mxGeometry height="206" width="360" x="46" y="86" as="geometry" />
+          <mxGeometry height="278" width="360" x="46" y="86" as="geometry" />
         </mxCell>
         <mxCell id="n24" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- nombre: str" vertex="1">
           <mxGeometry height="24" width="360" y="30" as="geometry" />
@@ -79,20 +79,20 @@
         <mxCell id="n26" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ obtenerNombre(): str" vertex="1">
           <mxGeometry height="24" width="360" y="62" as="geometry" />
         </mxCell>
-        <mxCell id="n27" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ agregarEmpleado(empleado: Empleado): bool" vertex="1">
-          <mxGeometry height="24" width="360" y="86" as="geometry" />
+        <mxCell id="n27" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ agregarEmpleado(empleado: Empleado, solicitante: Usuario): bool" vertex="1">
+          <mxGeometry height="48" width="360" y="86" as="geometry" />
         </mxCell>
-        <mxCell id="n28" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ quitarEmpleado(empleado: Empleado): bool" vertex="1">
-          <mxGeometry height="24" width="360" y="110" as="geometry" />
+        <mxCell id="n28" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ quitarEmpleado(empleado: Empleado, solicitante: Usuario): bool" vertex="1">
+          <mxGeometry height="48" width="360" y="134" as="geometry" />
         </mxCell>
-        <mxCell id="n29" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ asignarGerente(empleado: Empleado): void" vertex="1">
-          <mxGeometry height="24" width="360" y="134" as="geometry" />
+        <mxCell id="n29" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ asignarGerente(empleado: Empleado, solicitante: Usuario): void" vertex="1">
+          <mxGeometry height="48" width="360" y="182" as="geometry" />
         </mxCell>
         <mxCell id="n30" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ listarEmpleados(): list" vertex="1">
-          <mxGeometry height="24" width="360" y="158" as="geometry" />
+          <mxGeometry height="24" width="360" y="230" as="geometry" />
         </mxCell>
         <mxCell id="n31" parent="n22" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ obtenerResumen(): str" vertex="1">
-          <mxGeometry height="24" width="360" y="182" as="geometry" />
+          <mxGeometry height="24" width="360" y="254" as="geometry" />
         </mxCell>
         <mxCell id="n32" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Proyecto" vertex="1">
           <mxGeometry height="206" width="296.14" x="1022.86" y="376" as="geometry" />

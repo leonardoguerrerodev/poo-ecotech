@@ -13,7 +13,7 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
 #
 # POR QUÉ EMPLEADO Y DEPARTAMENTO: son las dos clases relacionadas que pide
 # la evaluación, y su relación es la más ilustrativa, una agregación 1..N
-# donde borrar el todo no borra las partes. La opción 4 lo demuestra en vivo.
+# donde borrar el todo no borra las partes. La opción 9 lo demuestra en vivo.
 
 import secrets
 import sqlite3
@@ -24,24 +24,45 @@ from datetime import date
 # dónde sale cada nombre.
 from ecotech import Departamento, Empleado, Rol, Usuario, crear_tablas
 
+# El menú se ordena por OPERACIÓN (C-R-U-D) y no por clase: así se lee de
+# un vistazo que el ciclo está completo, que es lo que evalúa el 2.1.3. Los
+# números siguen corridos del 1 al 10 para teclear una sola tecla o dos, y
+# los encabezados son solo agrupación visual.
 MENU = """
 ==================================================================
    EcoTech Solutions — Gestión de empleados
 ==================================================================
-   DEPARTAMENTOS                EMPLEADOS
-    1. Crear                     5. Contratar
-    2. Listar                    6. Listar
-    3. Renombrar                 7. Actualizar contacto
-    4. Eliminar                  8. Eliminar
-                                 9. Asignar a departamento
-    s. Cargar datos de ejemplo   0. Salir
+   C — CREAR                     U — ACTUALIZAR
+    1. Datos de ejemplo           6. Renombrar departamento
+    2. Departamento               7. Contacto del empleado
+    3. Empleado (contratar)       8. Asignar a departamento
+
+   R — LEER                      D — ELIMINAR
+    4. Departamentos              9. Departamento
+    5. Empleados                 10. Empleado
+
+   m. menú   ·   x. cancela el dato que se pide   ·   0. salir
 =================================================================="""
 
 # Techo de todo entero tecleado, salido de la auditoría: SQLite guarda enteros
 # de 64 bits y uno mayor lanza OverflowError al convertirlo. Un id de 25
-# dígitos tumbaba el menú por seis caminos (las opciones 3, 4, 7, 8, 9 con el
-# id y la 5 con el salario), y los seis cruzan por `pedir_entero`.
+# dígitos tumbaba el menú por seis caminos (las opciones 6, 7, 8, 9, 10 con el
+# id y la 3 con el salario), y los seis cruzan por `pedir_entero`.
+#
+# QUÉ ES 2**63-1: en Python `**` es la potencia, así que se lee "2 elevado a
+# 63, menos 1" = 9.223.372.036.854.775.807, el mayor entero que SQLite puede
+# guardar. Sale de los 64 bits: uno se reserva para el signo (positivo o
+# negativo) y quedan 63 para el valor. Con 63 bits hay 2**63 combinaciones,
+# y como una de ellas es el cero, el máximo es una menos. Es el mismo tope
+# que el BIGINT de otras bases de datos.
+#
+# El techo de 10**9 (mil millones) queda muy por debajo de ese límite, y aun
+# así sobra: ningún id ni salario del caso se acerca a esa cifra.
 MAXIMO_ENTERO = 10**9
+
+# Las opciones que piden algo por teclado, y por lo tanto las únicas donde
+# tiene sentido avisar que x cancela. La 1, la 4 y la 5 no preguntan nada.
+PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
 
 
 # --- Entrada validada del usuario ------------------------------------
@@ -53,9 +74,32 @@ MAXIMO_ENTERO = 10**9
 # no futuro). Esta se salta llamando a la clase desde otro programa, la de
 # allá no; por eso allá manda, y esta solo evita excepciones por un dedazo.
 
+# CANCELAR ES UNA EXCEPCIÓN, NO UN `None`. Si `leer` devolviera None, cada una
+# de las siete opciones que piden datos necesitaría su propio `if` después de
+# cada pregunta, y contratar hace seis. Con la excepción, el corte ocurre en
+# un solo lugar y sube directo al bucle de `main()`: el constructor nunca
+# llega a ejecutarse, así que no queda un objeto a medias ni se toca la base.
+#
+# Hereda de `Exception` y no de `ValueError` a propósito: cancelar no es un
+# dato inválido, y si fuera ValueError lo atraparía `pedir_fecha` como fecha
+# mal escrita y volvería a preguntar en vez de cancelar.
+class Cancelado(Exception):
+    """El usuario escribió x en lugar del dato."""
+
+
+# El único `input()` de datos del programa. `lower()` hace que X mayúscula
+# también cancele. Costo asumido: no se puede ingresar un dato que sea
+# literalmente "x", y ningún campo del modelo lo admitiría.
+def leer(mensaje: str) -> str:
+    valor = input(mensaje).strip()
+    if valor.lower() == "x":
+        raise Cancelado
+    return valor
+
+
 def pedir_texto(mensaje: str) -> str:
     while True:
-        valor = input(mensaje).strip()
+        valor = leer(mensaje)
         if valor:
             return valor
         print("   ! No puede quedar vacío.")
@@ -67,7 +111,7 @@ def pedir_texto(mensaje: str) -> str:
 # exactamente lo que `int()` sabe convertir.
 def pedir_entero(mensaje: str) -> int:
     while True:
-        valor = input(mensaje).strip()
+        valor = leer(mensaje)
         if not valor.isdecimal():
             print("   ! Escriba un número entero, sin puntos ni letras.")
         elif int(valor) > MAXIMO_ENTERO:
@@ -81,7 +125,7 @@ def pedir_entero(mensaje: str) -> int:
 def pedir_fecha(mensaje: str) -> date:
     while True:
         try:
-            return date.fromisoformat(input(mensaje).strip())
+            return date.fromisoformat(leer(mensaje))
         except ValueError:
             print("   ! Formato de fecha: AAAA-MM-DD, por ejemplo 2024-03-01.")
 
@@ -143,22 +187,36 @@ PLANTILLA = [
 
 def sembrar(solicitante: Usuario) -> None:
     """La C del ciclo, con datos que parecen reales."""
-    # El diccionario guarda el id que devolvió cada INSERT para poder enlazar
-    # después a cada empleado con su departamento: la clave foránea en la
-    # práctica.
+    # CANDADO DE BASE VACÍA. Sin él, repetir la opción guardaba los dos
+    # departamentos y recién después chocaba contra el UNIQUE del correo del
+    # primer empleado: el mensaje decía "ya está registrado", pero quedaban
+    # dos departamentos duplicados. Cada método abre y cierra su propia
+    # conexión, así que no hay una transacción que abarque la siembra entera
+    # y pueda deshacerla. Revisar antes de escribir es la forma de que el
+    # mensaje y la base digan lo mismo.
+    #
+    # Pregunta por las dos tablas porque borrar todos los departamentos deja
+    # a los empleados vivos (ON DELETE SET NULL), y esos correos chocarían.
+    if Departamento.listar() or Empleado.listar():
+        print("   ! Ya hay datos cargados: los ejemplos solo se crean "
+              "sobre una base vacía.")
+        return
+    # El diccionario guarda los objetos ya guardados para enlazar después a
+    # cada empleado con su departamento. Guarda el objeto y no el id porque la
+    # relación se escribe con el método del UML, `agregar_empleado`, que
+    # recibe objetos; por dentro traduce a la clave foránea.
     departamentos = {
-        nombre: Departamento(nombre).guardar(solicitante)
+        nombre: Departamento(nombre)
         for nombre in ("Desarrollo Sostenible", "Investigación y Desarrollo")
     }
+    for departamento in departamentos.values():
+        departamento.guardar(solicitante)
     for nombre, direccion, telefono, correo, contrato, salario, dep in PLANTILLA:
         empleado = Empleado(nombre, direccion, telefono, correo,
                             contrato, salario)
         empleado.guardar(solicitante)
-        empleado.asignar_departamento(departamentos[dep], solicitante)
-    # Correrlo dos veces choca contra el UNIQUE del correo y levanta
-    # IntegrityError, que el bucle principal atrapa. No es descuido: es la
-    # demostración más simple de que el menú sobrevive a un error de base.
-    print(f"   Cargados {len(departamentos)} departamentos "
+        departamentos[dep].agregar_empleado(empleado, solicitante)
+    print(f"   Creados {len(departamentos)} departamentos "
           f"y {len(PLANTILLA)} empleados.")
 
 
@@ -168,38 +226,27 @@ def sembrar(solicitante: Usuario) -> None:
 # parecen. Aburrido y legible le gana a ingenioso.
 
 def ejecutar(opcion: str, solicitante: Usuario) -> None:
+    # El aviso va una vez al entrar a la opción y no pegado a cada pregunta:
+    # contratar hace seis, y repetir "(x cancela)" seis veces es ruido.
+    if opcion in PIDEN_DATOS:
+        print("   (escriba x para cancelar)")
+
+    # --- C: crear
     if opcion == "1":
-        # C — construir ya valida: si el nombre no sirve, no se toca la base.
+        # Primera del menú porque es lo primero que se hace en una base vacía.
+        sembrar(solicitante)
+
+    elif opcion == "2":
+        # Construir ya valida: si el nombre no sirve, no se toca la base.
         departamento = Departamento(pedir_texto("   Nombre: "))
         print("   Departamento creado con id "
               f"{departamento.guardar(solicitante)}.")
 
-    elif opcion == "2":
-        # R
-        listar_departamentos()
-
     elif opcion == "3":
-        # U — se busca primero para confirmar que existe: un UPDATE sobre un
-        # id inexistente no da error, solo afecta cero filas.
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        # Cortocircuito: si es None, no se pide el nombre nuevo ni se renombra.
-        if departamento and departamento.renombrar(
-                pedir_texto("   Nuevo nombre: "), solicitante):
-            print(f"   Ahora se llama {departamento.obtener_nombre()}.")
-
-    elif opcion == "4":
-        # D — la operación que demuestra la agregación, y el mensaje lo dice
-        # en voz alta porque es el punto que hay que defender.
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento and departamento.eliminar(solicitante):
-            print("   Departamento eliminado. Sus empleados siguen vigentes, "
-                  "sin departamento: la agregación es ON DELETE SET NULL.")
-
-    elif opcion == "5":
-        # C — los seis campos llegan al constructor con el tipo correcto; lo
-        # que el constructor juzga es la regla de negocio.
+        # Los seis campos llegan al constructor con el tipo correcto; lo que
+        # el constructor juzga es la regla de negocio. Python evalúa los seis
+        # argumentos antes de llamar a `Empleado(...)`, así que una x en el
+        # salario cancela sin que el objeto llegue a existir.
         empleado = Empleado(pedir_texto("   Nombre completo: "),
                             pedir_texto("   Dirección: "),
                             pedir_texto("   Teléfono: "),
@@ -208,13 +255,27 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
                             pedir_entero("   Salario: "))
         print(f"   Empleado contratado con id {empleado.guardar(solicitante)}.")
 
-    elif opcion == "6":
-        # R
+    # --- R: leer
+    elif opcion == "4":
+        listar_departamentos()
+
+    elif opcion == "5":
         listar_empleados()
 
+    # --- U: actualizar
+    elif opcion == "6":
+        # Se busca primero para confirmar que existe: un UPDATE sobre un id
+        # inexistente no da error, solo afecta cero filas.
+        departamento = buscar_o_avisar(Departamento,
+                                       pedir_entero("   Id del departamento: "))
+        # Cortocircuito: si es None, no se pide el nombre nuevo ni se renombra.
+        if departamento and departamento.renombrar(
+                pedir_texto("   Nuevo nombre: "), solicitante):
+            print(f"   Ahora se llama {departamento.obtener_nombre()}.")
+
     elif opcion == "7":
-        # U — imprime el resumen después de actualizar para que el usuario vea
-        # el teléfono ya normalizado: escribe "22 987 6543", sale "229876543".
+        # Imprime el resumen después de actualizar para que el usuario vea el
+        # teléfono ya normalizado: escribe "22 987 6543", sale "229876543".
         empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
         if empleado:
             empleado.actualizar_contacto(pedir_texto("   Nuevo teléfono: "),
@@ -222,26 +283,38 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
             print(f"   {empleado.obtener_resumen()}")
 
     elif opcion == "8":
-        # D
-        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
-        if empleado and empleado.eliminar(solicitante):
-            print("   Empleado eliminado, junto con sus registros de tiempo.")
-
-    elif opcion == "9":
-        # U — el `return` temprano evita pedir el segundo id cuando el primero
-        # ya falló. Anidar dos `if` daría lo mismo pero se lee peor.
+        # El `return` temprano evita pedir el segundo id cuando el primero ya
+        # falló. Anidar dos `if` daría lo mismo pero se lee peor.
         empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
         if empleado is None:
             return
         departamento = buscar_o_avisar(Departamento,
                                        pedir_entero("   Id del departamento: "))
-        if departamento and empleado.asignar_departamento(
-                departamento.obtener_id(), solicitante):
+        if departamento is None:
+            return
+        # False no es un error: el empleado ya estaba ahí y el UPDATE afectó
+        # cero filas. Se dice, porque un silencio parecería una falla.
+        if departamento.agregar_empleado(empleado, solicitante):
             print(f"   {empleado.obtener_nombre()} quedó en "
                   f"{departamento.obtener_nombre()}.")
+        else:
+            print(f"   ! {empleado.obtener_nombre()} ya pertenecía a "
+                  f"{departamento.obtener_nombre()}.")
 
-    elif opcion == "s":
-        sembrar(solicitante)
+    # --- D: eliminar
+    elif opcion == "9":
+        # La operación que demuestra la agregación, y el mensaje lo dice en
+        # voz alta porque es el punto que hay que defender.
+        departamento = buscar_o_avisar(Departamento,
+                                       pedir_entero("   Id del departamento: "))
+        if departamento and departamento.eliminar(solicitante):
+            print("   Departamento eliminado. Sus empleados siguen vigentes, "
+                  "sin departamento: la agregación es ON DELETE SET NULL.")
+
+    elif opcion == "10":
+        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
+        if empleado and empleado.eliminar(solicitante):
+            print("   Empleado eliminado, junto con sus registros de tiempo.")
 
     else:
         print("   ! Opción desconocida.")
@@ -293,11 +366,25 @@ def main() -> None:
         # al primero que coincida: `IntegrityError` y `OperationalError` son
         # subclases de `sqlite3.Error` y después del genérico nunca correrían.
 
-        # Una restricción de la base rechazó el dato (el UNIQUE del correo, un
-        # CHECK). Es el error más frecuente en uso normal, de ahí el mensaje
-        # propio.
-        except sqlite3.IntegrityError:
-            print("   ! Ese correo ya está registrado. Use otro.")
+        # Primero, porque cancelar no es un error: el usuario lo pidió. Por
+        # eso el mensaje no lleva el "!" de los demás. "No se guardó nada" es
+        # cierto: la excepción sale antes de cualquier `guardar()` o UPDATE.
+        except Cancelado:
+            print("   Acción cancelada. No se guardó nada.")
+
+        # Una restricción de la base rechazó el dato. El correo repetido es el
+        # caso frecuente y lleva mensaje propio; antes TODO IntegrityError
+        # decía "Ese correo ya está registrado", también una clave foránea o
+        # un CHECK, y el mensaje mentía. `sqlite_errorname` (Python 3.11+)
+        # identifica la restricción por su código, sin depender del texto en
+        # inglés del error. El único UNIQUE que el menú puede violar es el del
+        # correo: `usuario` no se escribe en esta unidad.
+        except sqlite3.IntegrityError as error:
+            if error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
+                print("   ! Ese correo ya está registrado. Use otro.")
+            else:
+                print("   ! La base rechazó el dato por una restricción. "
+                      "No se guardó nada.")
 
         # El archivo de la base no está disponible: borrado, sin permisos,
         # bloqueado, disco lleno. Aquí sí conviene mostrar el texto del error,

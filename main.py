@@ -17,28 +17,45 @@ MENU = """
 ==================================================================
    EcoTech Solutions — Gestión de empleados
 ==================================================================
-   DEPARTAMENTOS                EMPLEADOS
-    1. Crear                     5. Contratar
-    2. Listar                    6. Listar
-    3. Renombrar                 7. Actualizar contacto
-    4. Eliminar                  8. Eliminar
-                                 9. Asignar a departamento
-    s. Cargar datos de ejemplo   0. Salir
+   C — CREAR                     U — ACTUALIZAR
+    1. Datos de ejemplo           6. Renombrar departamento
+    2. Departamento               7. Contacto del empleado
+    3. Empleado (contratar)       8. Asignar a departamento
+
+   R — LEER                      D — ELIMINAR
+    4. Departamentos              9. Departamento
+    5. Empleados                 10. Empleado
+
+   m. menú   ·   x. cancela el dato que se pide   ·   0. salir
 =================================================================="""
 
 # Techo de todo entero que teclee el usuario. Existe porque SQLite guarda
-# enteros de 64 bits: un número mayor a 2**63-1 no lanza un error de base,
-# lanza OverflowError al convertirlo, y eso mataría el programa.
+# enteros de 64 bits, y el mayor que cabe es 2**63-1 (2 elevado a 63, menos
+# 1: 9.223.372.036.854.775.807). Un número más grande no lanza un error de
+# base, lanza OverflowError al convertirlo, y eso mataría el programa.
 MAXIMO_ENTERO = 10**9
+
+PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
 
 
 # --- Entrada validada del usuario ------------------------------------
 # Reintentan hasta recibir algo usable. El programa nunca avanza con un
 # dato que las clases vayan a rechazar por formato.
 
+class Cancelado(Exception):
+    """El usuario escribió x en lugar del dato."""
+
+
+def leer(mensaje: str) -> str:
+    valor = input(mensaje).strip()
+    if valor.lower() == "x":
+        raise Cancelado
+    return valor
+
+
 def pedir_texto(mensaje: str) -> str:
     while True:
-        valor = input(mensaje).strip()
+        valor = leer(mensaje)
         if valor:
             return valor
         print("   ! No puede quedar vacío.")
@@ -46,7 +63,7 @@ def pedir_texto(mensaje: str) -> str:
 
 def pedir_entero(mensaje: str) -> int:
     while True:
-        valor = input(mensaje).strip()
+        valor = leer(mensaje)
         if not valor.isdecimal():
             print("   ! Escriba un número entero, sin puntos ni letras.")
         elif int(valor) > MAXIMO_ENTERO:
@@ -58,7 +75,7 @@ def pedir_entero(mensaje: str) -> int:
 def pedir_fecha(mensaje: str) -> date:
     while True:
         try:
-            return date.fromisoformat(input(mensaje).strip())
+            return date.fromisoformat(leer(mensaje))
         except ValueError:
             print("   ! Formato de fecha: AAAA-MM-DD, por ejemplo 2024-03-01.")
 
@@ -108,45 +125,41 @@ PLANTILLA = [
 
 def sembrar(solicitante: Usuario) -> None:
     """La C del ciclo, con datos que parecen reales."""
+    if Departamento.listar() or Empleado.listar():
+        print("   ! Ya hay datos cargados: los ejemplos solo se crean "
+              "sobre una base vacía.")
+        return
     departamentos = {
-        nombre: Departamento(nombre).guardar(solicitante)
+        nombre: Departamento(nombre)
         for nombre in ("Desarrollo Sostenible", "Investigación y Desarrollo")
     }
+    for departamento in departamentos.values():
+        departamento.guardar(solicitante)
     for nombre, direccion, telefono, correo, contrato, salario, dep in PLANTILLA:
         empleado = Empleado(nombre, direccion, telefono, correo,
                             contrato, salario)
         empleado.guardar(solicitante)
-        empleado.asignar_departamento(departamentos[dep], solicitante)
-    print(f"   Cargados {len(departamentos)} departamentos "
+        departamentos[dep].agregar_empleado(empleado, solicitante)
+    print(f"   Creados {len(departamentos)} departamentos "
           f"y {len(PLANTILLA)} empleados.")
 
 
 # --- Despacho ---------------------------------------------------------
 
 def ejecutar(opcion: str, solicitante: Usuario) -> None:
+    if opcion in PIDEN_DATOS:
+        print("   (escriba x para cancelar)")
+
+    # --- C: crear
     if opcion == "1":
+        sembrar(solicitante)
+
+    elif opcion == "2":
         departamento = Departamento(pedir_texto("   Nombre: "))
         print("   Departamento creado con id "
               f"{departamento.guardar(solicitante)}.")
 
-    elif opcion == "2":
-        listar_departamentos()
-
     elif opcion == "3":
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento and departamento.renombrar(
-                pedir_texto("   Nuevo nombre: "), solicitante):
-            print(f"   Ahora se llama {departamento.obtener_nombre()}.")
-
-    elif opcion == "4":
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento and departamento.eliminar(solicitante):
-            print("   Departamento eliminado. Sus empleados siguen vigentes, "
-                  "sin departamento: la agregación es ON DELETE SET NULL.")
-
-    elif opcion == "5":
         empleado = Empleado(pedir_texto("   Nombre completo: "),
                             pedir_texto("   Dirección: "),
                             pedir_texto("   Teléfono: "),
@@ -155,8 +168,20 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
                             pedir_entero("   Salario: "))
         print(f"   Empleado contratado con id {empleado.guardar(solicitante)}.")
 
-    elif opcion == "6":
+    # --- R: leer
+    elif opcion == "4":
+        listar_departamentos()
+
+    elif opcion == "5":
         listar_empleados()
+
+    # --- U: actualizar
+    elif opcion == "6":
+        departamento = buscar_o_avisar(Departamento,
+                                       pedir_entero("   Id del departamento: "))
+        if departamento and departamento.renombrar(
+                pedir_texto("   Nuevo nombre: "), solicitante):
+            print(f"   Ahora se llama {departamento.obtener_nombre()}.")
 
     elif opcion == "7":
         empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
@@ -167,22 +192,31 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
 
     elif opcion == "8":
         empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
-        if empleado and empleado.eliminar(solicitante):
-            print("   Empleado eliminado, junto con sus registros de tiempo.")
-
-    elif opcion == "9":
-        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
         if empleado is None:
             return
         departamento = buscar_o_avisar(Departamento,
                                        pedir_entero("   Id del departamento: "))
-        if departamento and empleado.asignar_departamento(
-                departamento.obtener_id(), solicitante):
+        if departamento is None:
+            return
+        if departamento.agregar_empleado(empleado, solicitante):
             print(f"   {empleado.obtener_nombre()} quedó en "
                   f"{departamento.obtener_nombre()}.")
+        else:
+            print(f"   ! {empleado.obtener_nombre()} ya pertenecía a "
+                  f"{departamento.obtener_nombre()}.")
 
-    elif opcion == "s":
-        sembrar(solicitante)
+    # --- D: eliminar
+    elif opcion == "9":
+        departamento = buscar_o_avisar(Departamento,
+                                       pedir_entero("   Id del departamento: "))
+        if departamento and departamento.eliminar(solicitante):
+            print("   Departamento eliminado. Sus empleados siguen vigentes, "
+                  "sin departamento: la agregación es ON DELETE SET NULL.")
+
+    elif opcion == "10":
+        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
+        if empleado and empleado.eliminar(solicitante):
+            print("   Empleado eliminado, junto con sus registros de tiempo.")
 
     else:
         print("   ! Opción desconocida.")
@@ -209,8 +243,14 @@ def main() -> None:
                 print(MENU)
                 continue
             ejecutar(opcion, solicitante)
-        except sqlite3.IntegrityError:
-            print("   ! Ese correo ya está registrado. Use otro.")
+        except Cancelado:
+            print("   Acción cancelada. No se guardó nada.")
+        except sqlite3.IntegrityError as error:
+            if error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
+                print("   ! Ese correo ya está registrado. Use otro.")
+            else:
+                print("   ! La base rechazó el dato por una restricción. "
+                      "No se guardó nada.")
         except sqlite3.OperationalError as error:
             print(f"   ! No se pudo acceder a la base de datos: {error}")
         except sqlite3.Error:

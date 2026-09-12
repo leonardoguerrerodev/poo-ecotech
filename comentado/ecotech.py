@@ -110,6 +110,17 @@ def autorizar(solicitante: "Usuario", modulo: str) -> None:
         raise PermissionError(f"No autorizado para operar sobre {modulo}")
 
 
+# Una relación en la base se escribe con ids, y un objeto sin guardar no
+# tiene id. Sin esta guarda, `UPDATE ... WHERE id = NULL` afecta cero filas y
+# el método devolvería False sin decir por qué. Es función de módulo, como
+# `autorizar`, y no método: la usan dos clases y el UML no la tiene.
+def exigir_guardado(entidad: "EntidadReportable") -> int:
+    if entidad.obtener_id() is None:
+        raise ValueError(f"{type(entidad).__name__} sin guardar: guárdelo "
+                         "antes de relacionarlo")
+    return entidad.obtener_id()
+
+
 # =====================================================================
 # 2. BASE DE DATOS
 # =====================================================================
@@ -121,8 +132,14 @@ def autorizar(solicitante: "Usuario", modulo: str) -> None:
 # RUTA_ACTIVA es variable de módulo para no arrastrar la ruta por toda la
 # firma pública. `usar_base()` la cambia en un punto, que es lo que usa la
 # autoverificación para no tocar la base real.
+#
+# La ruta se ancla a la carpeta de ESTE archivo y no al directorio desde donde
+# se lanza el programa. Con "ecotech.db" a secas, correr
+# `python3 ecotech_new/main.py` desde la carpeta de arriba abría otra base,
+# vacía, y parecía que los datos se habían perdido. Consecuencia en el
+# espejo: este archivo, si se ejecuta, usa `comentado/ecotech.db`.
 
-RUTA_ACTIVA = "ecotech.db"
+RUTA_ACTIVA = str(Path(__file__).with_name("ecotech.db"))
 
 # ESQUEMA EN UN BLOQUE, no una tabla por clase: las claves foráneas son
 # circulares (empleado ↔ departamento) y `executescript` las crea en una
@@ -344,11 +361,14 @@ class Empleado(Persona):
         self.__fecha_inicio_contrato = fecha_inicio_contrato
         self.__salario = salario
         self.__registros: list["RegistroTiempo"] = []
-        # Guion bajo simple: son las asociaciones del diagrama, y
-        # `Departamento` y `Proyecto` las manipulan para sincronizar la
-        # relación en los dos sentidos.
+        # Guion bajo simple: es la asociación del diagrama con `Proyecto`, que
+        # la manipula para sincronizar la relación en los dos sentidos. Vive
+        # en memoria porque `Proyecto` no se persiste en esta unidad.
+        #
+        # Aquí había un `_departamento`. Se borró: la relación con
+        # `Departamento` vive solo en la clave foránea, y una copia en memoria
+        # era una segunda verdad que se desfasaba.
         self._proyectos: list["Proyecto"] = []
-        self._departamento: "Departamento | None" = None
 
     # Autorización en el dato, no en la pantalla: el salario pide quién
     # pregunta. Un control en la interfaz se salta llamando a la clase.
@@ -390,6 +410,12 @@ class Empleado(Persona):
         # Python se reinicia y colisiona con lo ya guardado. `solicitante`
         # hace falta porque insertar exige leer el salario, y eso exige
         # permiso.
+        #
+        # Un objeto que ya tiene id ya tiene fila: un segundo INSERT crearía
+        # un duplicado, o chocaría contra el UNIQUE del correo con un mensaje
+        # que no explica nada.
+        if self._id is not None:
+            raise ValueError(f"El empleado ya está guardado con id {self._id}")
         direccion, telefono, correo = self._datos_contacto()
         with conectar() as con:
             cur = con.execute(
@@ -436,16 +462,10 @@ class Empleado(Persona):
                 "UPDATE empleado SET telefono = ?, correo = ? WHERE id = ?",
                 (telefono_guardado, correo_guardado, self._id))
 
-    # Acepta None: es como se desvincula a alguien sin despedirlo.
-    def asignar_departamento(self, departamento_id: int | None,
-                             solicitante: "Usuario") -> bool:
-        """U — la clave foránea de la agregación."""
-        autorizar(solicitante, "empleados")
-        with conectar() as con:
-            cur = con.execute(
-                "UPDATE empleado SET departamento_id = ? WHERE id = ?",
-                (departamento_id, self._id))
-        return cur.rowcount == 1
+    # Aquí estaba `asignar_departamento(departamento_id, solicitante)`. Se
+    # borró en la tercera pasada: el UML no lo tiene, y hacía lo mismo que
+    # `Departamento.agregar_empleado` por otro camino. Uno escribía la base y
+    # el otro la memoria, y ninguno se enteraba del otro.
 
     # `rowcount == 1` distingue borrar de no encontrar nada: un DELETE vacío
     # no es error en SQL y el menú diría "eliminado" igual. Pide permiso
@@ -474,59 +494,131 @@ class Departamento(EntidadReportable):
     def __init__(self, nombre: str, id: int | None = None):
         super().__init__(id)
         self.__nombre = texto(nombre, "El nombre del departamento")
-        self.__empleados: list["Empleado"] = []
-        self.__gerente: "Empleado | None" = None
+        # UNA SOLA VERDAD. Aquí vivían `__empleados` y `__gerente`, listas en
+        # memoria heredadas de la Unidad 1. Con la base agregada quedaron dos
+        # fuentes de la misma relación que nunca se sincronizaban: un
+        # departamento leído con `buscar()` llegaba con la lista vacía y su
+        # resumen decía "Empleados: 0" mientras la base tenía dos. Se borraron:
+        # la relación vive en `empleado.departamento_id` y en
+        # `departamento.gerente_id`, y los cinco métodos de abajo la leen o la
+        # escriben ahí.
 
     def obtener_nombre(self) -> str:
         return self.__nombre
 
-    # La asociación bidireccional se mantiene desde un solo lado: este método
-    # actualiza las dos puntas, y saca al empleado de su departamento
-    # anterior porque la multiplicidad del diagrama es 0..1.
-    def agregar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado in self.__empleados:
-            return False
-        if empleado._departamento is not None:
-            empleado._departamento.quitar_empleado(empleado)
-        self.__empleados.append(empleado)
-        empleado._departamento = self
-        return True
+    # LOS MÉTODOS DEL UML ESCRIBEN LA BASE. Son la agregación del diagrama y
+    # ahora también su persistencia, así que no hace falta un método CRUD
+    # aparte para la relación.
+    #
+    # `solicitante` se agregó a los tres que escriben, en el código y en
+    # `modelo_u2.drawio`: toda escritura pasa por `autorizar()`. El módulo
+    # sale de la tabla que se escribe: agregar y quitar cambian la fila del
+    # empleado (`empleados`), asignar gerente cambia la del departamento
+    # (`departamentos`).
+    #
+    # Las dos sentencias van en el mismo `with conectar()`, que es una sola
+    # transacción: o se hacen las dos o ninguna.
+    #
+    # La primera deja vacante el cargo que el empleado tuviera en OTRO
+    # departamento: la multiplicidad es 0..1 y un gerente fuera de su
+    # departamento sería un estado imposible. La segunda mueve la clave
+    # foránea; `IS NOT` en vez de `<>` porque `NULL <> 3` no es verdadero en
+    # SQL, y un empleado sin departamento nunca se podría asignar. Ese mismo
+    # filtro hace que asignar a alguien donde ya estaba afecte cero filas y
+    # devuelva False, como pide el `bool` del diagrama.
+    def agregar_empleado(self, empleado: "Empleado",
+                         solicitante: "Usuario") -> bool:
+        """U — la clave foránea de la agregación."""
+        autorizar(solicitante, "empleados")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            con.execute(
+                "UPDATE departamento SET gerente_id = NULL"
+                " WHERE gerente_id = ? AND id <> ?",
+                (id_empleado, id_departamento))
+            cur = con.execute(
+                "UPDATE empleado SET departamento_id = ?"
+                " WHERE id = ? AND departamento_id IS NOT ?",
+                (id_departamento, id_empleado, id_departamento))
+        return cur.rowcount == 1
 
-    # Si el que se va era el gerente, el cargo queda vacante: un gerente
-    # fuera del departamento sería un estado imposible.
-    def quitar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado not in self.__empleados:
-            return False
-        if self.__gerente is empleado:
-            self.__gerente = None
-        self.__empleados.remove(empleado)
-        empleado._departamento = None
-        return True
+    # La desvinculación sin despido. El `AND departamento_id = ?` impide que
+    # un departamento suelte a un empleado ajeno. Si el que se va era el
+    # gerente, el cargo queda vacante en la misma transacción.
+    def quitar_empleado(self, empleado: "Empleado",
+                        solicitante: "Usuario") -> bool:
+        """U — la clave foránea vuelve a NULL."""
+        autorizar(solicitante, "empleados")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "UPDATE empleado SET departamento_id = NULL"
+                " WHERE id = ? AND departamento_id = ?",
+                (id_empleado, id_departamento))
+            con.execute(
+                "UPDATE departamento SET gerente_id = NULL"
+                " WHERE id = ? AND gerente_id = ?",
+                (id_departamento, id_empleado))
+        return cur.rowcount == 1
 
-    def asignar_gerente(self, empleado: "Empleado") -> None:
-        if empleado not in self.__empleados:
+    # La regla "el gerente pertenece al departamento" no cabe en una
+    # restricción de tabla, porque cruza dos tablas. Va en el WHERE con
+    # EXISTS: la comprobación y la escritura son una sola sentencia, y no hay
+    # un momento entre las dos en que otro proceso cambie el dato.
+    def asignar_gerente(self, empleado: "Empleado",
+                        solicitante: "Usuario") -> None:
+        """U — gerente_id, solo si el empleado pertenece al departamento."""
+        autorizar(solicitante, "departamentos")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "UPDATE departamento SET gerente_id = ? WHERE id = ? AND EXISTS"
+                " (SELECT 1 FROM empleado WHERE id = ? AND departamento_id = ?)",
+                (id_empleado, id_departamento, id_empleado, id_departamento))
+        if cur.rowcount != 1:
             raise ValueError("El gerente debe pertenecer al departamento")
-        self.__gerente = empleado
 
-    # Devuelve una COPIA: con la lista interna, quien la recibe haría
-    # `.append()` y se saltaría las reglas de `agregar_empleado`.
+    # Devuelve objetos nuevos armados desde las filas, así que quien recibe
+    # la lista no puede alterar la relación manipulándola: la única puerta
+    # es `agregar_empleado`. Usa `Empleado._desde_fila`, protegido, porque es
+    # la misma reconstrucción que usa `Empleado.listar()` y repetirla aquí
+    # sería duplicar el mapeo fila → objeto.
     def listar_empleados(self) -> list["Empleado"]:
-        return list(self.__empleados)
+        """R — los empleados cuya clave foránea apunta aquí."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {Empleado.COLUMNAS} FROM empleado"
+                " WHERE departamento_id = ? ORDER BY nombre",
+                (self._id,)).fetchall()
+        return [Empleado._desde_fila(fila) for fila in filas]
 
+    # El conteo sale de `contar_empleados()`, el mismo COUNT(*) que muestra el
+    # menú, así que el informe y la pantalla no pueden decir cosas distintas.
+    # Un departamento sin guardar no tiene fila: el JOIN no encuentra nada y
+    # el resumen dice "sin gerente | Empleados: 0", que es la verdad.
     def obtener_resumen(self) -> str:
-        gerente = (self.__gerente.obtener_nombre()
-                   if self.__gerente is not None else "sin gerente")
+        with conectar() as con:
+            fila = con.execute(
+                "SELECT e.nombre FROM departamento d"
+                " JOIN empleado e ON e.id = d.gerente_id WHERE d.id = ?",
+                (self._id,)).fetchone()
+        gerente = "sin gerente" if fila is None else fila["nombre"]
         return (f"Departamento: {self.__nombre} | Gerente: {gerente} | "
-                f"Empleados: {len(self.__empleados)}")
+                f"Empleados: {self.contar_empleados()}")
 
     # --- Persistencia (CRUD) ---------------------------------------
 
     # Antes no pedía permiso, porque crear un departamento no expone datos
     # sensibles. La auditoría lo corrigió: el criterio es qué se escribe, no
-    # qué se lee.
+    # qué se lee. La guarda del id es la misma de `Empleado.guardar`.
     def guardar(self, solicitante: "Usuario") -> int:
         """C — INSERT."""
         autorizar(solicitante, "departamentos")
+        if self._id is not None:
+            raise ValueError(f"El departamento ya está guardado con id {self._id}")
         with conectar() as con:
             cur = con.execute("INSERT INTO departamento (nombre) VALUES (?)",
                               (self.__nombre,))
@@ -935,28 +1027,66 @@ def _autoverificar() -> None:
     assert Departamento.buscar(id_dep).obtener_nombre() == "Investigación y Desarrollo"
     ana.actualizar_contacto("22 987 6543", "j.bravo@ecotech.cl")
     assert "j.bravo@ecotech.cl" in Empleado.buscar(id_ana).obtener_resumen()
-    assert ana.asignar_departamento(id_dep, admin)
+    assert dep.agregar_empleado(ana, admin)
+    assert not dep.agregar_empleado(ana, admin), "ya pertenecía"
     assert dep.contar_empleados() == 1
+    dep.asignar_gerente(ana, admin)
+
+    # --- La relación vive en la base: otra instancia lee lo mismo
+    # El diagnóstico de la tercera pasada hecho prueba. `copia` es un objeto
+    # distinto de `dep`, leído de la base: si la relación volviera a vivir en
+    # listas de memoria, su resumen diría "sin gerente | Empleados: 0".
+    copia = Departamento.buscar(id_dep)
+    assert copia.obtener_resumen().endswith(
+        "Gerente: Juanita Bravo Sepúlveda | Empleados: 1"), "resumen desfasado"
+    assert [e.obtener_id() for e in copia.listar_empleados()] == [id_ana]
+    beto = nueva("beto@ecotech.cl")
+    beto.guardar(admin)
+    # Las tres reglas nuevas: gerente de otro departamento, relación con algo
+    # sin guardar y doble INSERT.
+    assert _rechaza(lambda: dep.asignar_gerente(beto, admin)), "gerente ajeno"
+    assert _rechaza(lambda: Departamento("Legal").agregar_empleado(ana, admin)), \
+        "relación con un departamento sin guardar"
+    assert _rechaza(lambda: ana.guardar(admin)), "doble INSERT"
+    # La gerente se cambia de departamento: el cargo del anterior queda
+    # vacante, y se comprueba a través de `copia`, no del objeto que escribió.
+    legal = Departamento("Legal")
+    legal.guardar(admin)
+    assert legal.agregar_empleado(ana, admin)
+    assert copia.obtener_resumen().endswith("sin gerente | Empleados: 0"), \
+        "el gerente se fue y el cargo siguió ocupado"
+    assert legal.quitar_empleado(ana, admin)
+    assert not legal.quitar_empleado(ana, admin), "quitar dos veces"
+    assert dep.agregar_empleado(ana, admin)
 
     # --- Ninguna escritura pasa sin permiso del módulo que le toca
-    # El defecto 2 de la auditoría hecho prueba: antes estas cinco líneas
-    # devolvían True, así que un rol EMPLEADO borraba empleados y
-    # departamentos sin poder leer un sueldo. La última comprueba que la
-    # excepción salta antes de tocar la base.
+    # El defecto 2 de la auditoría hecho prueba: antes estas líneas devolvían
+    # True, así que un rol EMPLEADO borraba empleados y departamentos sin
+    # poder leer un sueldo. Las tres de la relación son de la tercera pasada.
+    # Las dos últimas comprueban que la excepción salta antes de tocar la
+    # base: nada cambió.
     assert _rechaza(lambda: dep.renombrar("Pirata", basico), PermissionError)
     assert _rechaza(lambda: dep.eliminar(basico), PermissionError)
     assert _rechaza(lambda: ana.eliminar(basico), PermissionError)
-    assert _rechaza(lambda: ana.asignar_departamento(None, basico), PermissionError)
+    assert _rechaza(lambda: dep.agregar_empleado(beto, basico), PermissionError)
+    assert _rechaza(lambda: dep.quitar_empleado(ana, basico), PermissionError)
+    assert _rechaza(lambda: dep.asignar_gerente(ana, basico), PermissionError)
     assert _rechaza(lambda: Departamento("X").guardar(basico), PermissionError)
     assert Departamento.buscar(id_dep) is not None, "nada de eso llegó a ejecutarse"
+    assert dep.contar_empleados() == 1
 
     # La regla más importante del modelo: al borrar el departamento el
     # empleado sigue ahí. Si alguien cambiara SET NULL por CASCADE, esta línea
-    # lo detecta.
+    # lo detecta. Y al borrar a una gerente, el cargo queda vacante por el SET
+    # NULL de `gerente_id`, sin código que lo haga.
     assert dep.eliminar(admin)                                      # D
     assert Empleado.buscar(id_ana) is not None, "la agregación es SET NULL"
+    assert legal.agregar_empleado(ana, admin)
+    legal.asignar_gerente(ana, admin)
     assert ana.eliminar(admin)
     assert Empleado.buscar(id_ana) is None
+    assert legal.obtener_resumen().endswith("sin gerente | Empleados: 0"), \
+        "gerente borrado que sigue en el cargo"
     assert not ana.eliminar(admin), "borrar dos veces no puede devolver éxito"
 
     # --- El informe depende de la abstracción, no de las clases concretas

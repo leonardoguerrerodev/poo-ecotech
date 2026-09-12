@@ -63,11 +63,18 @@ def autorizar(solicitante: "Usuario", modulo: str) -> None:
         raise PermissionError(f"No autorizado para operar sobre {modulo}")
 
 
+def exigir_guardado(entidad: "EntidadReportable") -> int:
+    if entidad.obtener_id() is None:
+        raise ValueError(f"{type(entidad).__name__} sin guardar: guárdelo "
+                         "antes de relacionarlo")
+    return entidad.obtener_id()
+
+
 # =====================================================================
 # 2. BASE DE DATOS
 # =====================================================================
 
-RUTA_ACTIVA = "ecotech.db"
+RUTA_ACTIVA = str(Path(__file__).with_name("ecotech.db"))
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS departamento (
@@ -234,7 +241,6 @@ class Empleado(Persona):
         self.__salario = salario
         self.__registros: list["RegistroTiempo"] = []
         self._proyectos: list["Proyecto"] = []
-        self._departamento: "Departamento | None" = None
 
     def obtener_salario(self, solicitante: "Usuario") -> int:
         autorizar(solicitante, "empleados")
@@ -261,6 +267,8 @@ class Empleado(Persona):
 
     def guardar(self, solicitante: "Usuario") -> int:
         """C — INSERT. El id lo asigna SQLite, no el objeto."""
+        if self._id is not None:
+            raise ValueError(f"El empleado ya está guardado con id {self._id}")
         direccion, telefono, correo = self._datos_contacto()
         with conectar() as con:
             cur = con.execute(
@@ -300,16 +308,6 @@ class Empleado(Persona):
                 "UPDATE empleado SET telefono = ?, correo = ? WHERE id = ?",
                 (telefono_guardado, correo_guardado, self._id))
 
-    def asignar_departamento(self, departamento_id: int | None,
-                             solicitante: "Usuario") -> bool:
-        """U — la clave foránea de la agregación."""
-        autorizar(solicitante, "empleados")
-        with conectar() as con:
-            cur = con.execute(
-                "UPDATE empleado SET departamento_id = ? WHERE id = ?",
-                (departamento_id, self._id))
-        return cur.rowcount == 1
-
     def eliminar(self, solicitante: "Usuario") -> bool:
         """D — arrastra los registros de tiempo por ON DELETE CASCADE."""
         autorizar(solicitante, "empleados")
@@ -331,49 +329,84 @@ class Departamento(EntidadReportable):
     def __init__(self, nombre: str, id: int | None = None):
         super().__init__(id)
         self.__nombre = texto(nombre, "El nombre del departamento")
-        self.__empleados: list["Empleado"] = []
-        self.__gerente: "Empleado | None" = None
 
     def obtener_nombre(self) -> str:
         return self.__nombre
 
-    def agregar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado in self.__empleados:
-            return False
-        if empleado._departamento is not None:
-            empleado._departamento.quitar_empleado(empleado)
-        self.__empleados.append(empleado)
-        empleado._departamento = self
-        return True
+    def agregar_empleado(self, empleado: "Empleado",
+                         solicitante: "Usuario") -> bool:
+        """U — la clave foránea de la agregación."""
+        autorizar(solicitante, "empleados")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            con.execute(
+                "UPDATE departamento SET gerente_id = NULL"
+                " WHERE gerente_id = ? AND id <> ?",
+                (id_empleado, id_departamento))
+            cur = con.execute(
+                "UPDATE empleado SET departamento_id = ?"
+                " WHERE id = ? AND departamento_id IS NOT ?",
+                (id_departamento, id_empleado, id_departamento))
+        return cur.rowcount == 1
 
-    def quitar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado not in self.__empleados:
-            return False
-        if self.__gerente is empleado:
-            self.__gerente = None
-        self.__empleados.remove(empleado)
-        empleado._departamento = None
-        return True
+    def quitar_empleado(self, empleado: "Empleado",
+                        solicitante: "Usuario") -> bool:
+        """U — la clave foránea vuelve a NULL."""
+        autorizar(solicitante, "empleados")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "UPDATE empleado SET departamento_id = NULL"
+                " WHERE id = ? AND departamento_id = ?",
+                (id_empleado, id_departamento))
+            con.execute(
+                "UPDATE departamento SET gerente_id = NULL"
+                " WHERE id = ? AND gerente_id = ?",
+                (id_departamento, id_empleado))
+        return cur.rowcount == 1
 
-    def asignar_gerente(self, empleado: "Empleado") -> None:
-        if empleado not in self.__empleados:
+    def asignar_gerente(self, empleado: "Empleado",
+                        solicitante: "Usuario") -> None:
+        """U — gerente_id, solo si el empleado pertenece al departamento."""
+        autorizar(solicitante, "departamentos")
+        id_departamento = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "UPDATE departamento SET gerente_id = ? WHERE id = ? AND EXISTS"
+                " (SELECT 1 FROM empleado WHERE id = ? AND departamento_id = ?)",
+                (id_empleado, id_departamento, id_empleado, id_departamento))
+        if cur.rowcount != 1:
             raise ValueError("El gerente debe pertenecer al departamento")
-        self.__gerente = empleado
 
     def listar_empleados(self) -> list["Empleado"]:
-        return list(self.__empleados)
+        """R — los empleados cuya clave foránea apunta aquí."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {Empleado.COLUMNAS} FROM empleado"
+                " WHERE departamento_id = ? ORDER BY nombre",
+                (self._id,)).fetchall()
+        return [Empleado._desde_fila(fila) for fila in filas]
 
     def obtener_resumen(self) -> str:
-        gerente = (self.__gerente.obtener_nombre()
-                   if self.__gerente is not None else "sin gerente")
+        with conectar() as con:
+            fila = con.execute(
+                "SELECT e.nombre FROM departamento d"
+                " JOIN empleado e ON e.id = d.gerente_id WHERE d.id = ?",
+                (self._id,)).fetchone()
+        gerente = "sin gerente" if fila is None else fila["nombre"]
         return (f"Departamento: {self.__nombre} | Gerente: {gerente} | "
-                f"Empleados: {len(self.__empleados)}")
+                f"Empleados: {self.contar_empleados()}")
 
     # --- Persistencia (CRUD) ---------------------------------------
 
     def guardar(self, solicitante: "Usuario") -> int:
         """C — INSERT."""
         autorizar(solicitante, "departamentos")
+        if self._id is not None:
+            raise ValueError(f"El departamento ya está guardado con id {self._id}")
         with conectar() as con:
             cur = con.execute("INSERT INTO departamento (nombre) VALUES (?)",
                               (self.__nombre,))
@@ -672,21 +705,50 @@ def _autoverificar() -> None:
     assert Departamento.buscar(id_dep).obtener_nombre() == "Investigación y Desarrollo"
     ana.actualizar_contacto("22 987 6543", "j.bravo@ecotech.cl")
     assert "j.bravo@ecotech.cl" in Empleado.buscar(id_ana).obtener_resumen()
-    assert ana.asignar_departamento(id_dep, admin)
+    assert dep.agregar_empleado(ana, admin)
+    assert not dep.agregar_empleado(ana, admin), "ya pertenecía"
     assert dep.contar_empleados() == 1
+    dep.asignar_gerente(ana, admin)
+
+    # --- La relación vive en la base: otra instancia lee lo mismo
+    copia = Departamento.buscar(id_dep)
+    assert copia.obtener_resumen().endswith(
+        "Gerente: Juanita Bravo Sepúlveda | Empleados: 1"), "resumen desfasado"
+    assert [e.obtener_id() for e in copia.listar_empleados()] == [id_ana]
+    beto = nueva("beto@ecotech.cl")
+    beto.guardar(admin)
+    assert _rechaza(lambda: dep.asignar_gerente(beto, admin)), "gerente ajeno"
+    assert _rechaza(lambda: Departamento("Legal").agregar_empleado(ana, admin)), \
+        "relación con un departamento sin guardar"
+    assert _rechaza(lambda: ana.guardar(admin)), "doble INSERT"
+    legal = Departamento("Legal")
+    legal.guardar(admin)
+    assert legal.agregar_empleado(ana, admin)
+    assert copia.obtener_resumen().endswith("sin gerente | Empleados: 0"), \
+        "el gerente se fue y el cargo siguió ocupado"
+    assert legal.quitar_empleado(ana, admin)
+    assert not legal.quitar_empleado(ana, admin), "quitar dos veces"
+    assert dep.agregar_empleado(ana, admin)
 
     # --- Ninguna escritura pasa sin permiso del módulo que le toca
     assert _rechaza(lambda: dep.renombrar("Pirata", basico), PermissionError)
     assert _rechaza(lambda: dep.eliminar(basico), PermissionError)
     assert _rechaza(lambda: ana.eliminar(basico), PermissionError)
-    assert _rechaza(lambda: ana.asignar_departamento(None, basico), PermissionError)
+    assert _rechaza(lambda: dep.agregar_empleado(beto, basico), PermissionError)
+    assert _rechaza(lambda: dep.quitar_empleado(ana, basico), PermissionError)
+    assert _rechaza(lambda: dep.asignar_gerente(ana, basico), PermissionError)
     assert _rechaza(lambda: Departamento("X").guardar(basico), PermissionError)
     assert Departamento.buscar(id_dep) is not None, "nada de eso llegó a ejecutarse"
+    assert dep.contar_empleados() == 1
 
     assert dep.eliminar(admin)                                      # D
     assert Empleado.buscar(id_ana) is not None, "la agregación es SET NULL"
+    assert legal.agregar_empleado(ana, admin)
+    legal.asignar_gerente(ana, admin)
     assert ana.eliminar(admin)
     assert Empleado.buscar(id_ana) is None
+    assert legal.obtener_resumen().endswith("sin gerente | Empleados: 0"), \
+        "gerente borrado que sigue en el cargo"
     assert not ana.eliminar(admin), "borrar dos veces no puede devolver éxito"
 
     # --- El informe depende de la abstracción, no de cada clase concreta
