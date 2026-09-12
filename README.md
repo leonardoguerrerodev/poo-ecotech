@@ -8,7 +8,7 @@ la librería estándar: **sin dependencias externas**.
 
 ```bash
 python3 ecotech.py   # autoverificación sobre una base temporal
-python3 main.py      # menú de la aplicación (crea ./ecotech.db)
+python3 main.py      # menú de la aplicación (crea ./ecotech.db en modo 0600)
 ```
 
 Requiere Python 3.10 o superior (usa `int | None`).
@@ -21,20 +21,33 @@ Requiere Python 3.10 o superior (usa `int | None`).
 | `main.py` | Interfaz de terminal. No contiene una sola sentencia SQL |
 | `comentado/` | Espejo de ambos archivos con comentarios que justifican cada decisión |
 | `diagramas/` | Modelo de clases en formato drawio |
+| `docs/` | Análisis del código generado con IA, las dos auditorías de seguridad, el guion de defensa y la sesión de terminal |
+
+El espejo de `comentado/` es el mismo código con la justificación encima. Que siga siendo el mismo
+se comprueba así:
+
+```bash
+diff <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ecotech.py) \
+     <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' comentado/ecotech.py)
+```
 
 ### `ecotech.py`
 
 Cuatro secciones en orden:
 
 1. **Validaciones y autorización.** Expresiones regulares de correo, usuario y teléfono;
-   `texto()` normaliza y acota cadenas; `canonico()` reduce un teléfono a sus 9 dígitos;
+   `texto()` normaliza y acota cadenas y rechaza caracteres de control; `canonico()` reduce un
+   teléfono a sus 9 dígitos; `sin_formula()` neutraliza las celdas que una planilla evaluaría;
    `autorizar()` lanza `PermissionError` si el rol no cubre el módulo.
 2. **Base de datos.** `ESQUEMA` define las seis tablas. `conectar()` es un context manager
    que abre la conexión, activa `PRAGMA foreign_keys` y confirma o revierte la transacción.
-   `usar_base()` redirige la ruta, que es lo que permite testear contra una base temporal.
-3. **Clases del modelo.**
-4. **Autoverificación.** `_autoverificar()` recorre con `assert` el dominio, los permisos y
-   el ciclo CRUD entero. Es la red que protege cualquier refactor.
+   `crear_tablas()` es idempotente y deja el archivo en modo `0600`. `usar_base()` redirige la
+   ruta, que es lo que permite testear contra una base temporal.
+3. **Clases del modelo.** Las ocho del diagrama más el enum `Rol`, declaradas en orden de
+   dependencia y con su CRUD adentro. Detalle en la tabla de abajo.
+4. **Autoverificación.** `_autoverificar()` recorre con `assert` el dominio, los permisos, el
+   ciclo CRUD entero, los permisos del archivo de la base y la exportación a CSV. Es la red que
+   protege cualquier refactor.
 
 ### Clases
 
@@ -64,17 +77,42 @@ borra. Todas las consultas van parametrizadas con `?`.
 ## Seguridad
 
 - **Inyección SQL:** consultas parametrizadas, nunca concatenación de cadenas.
-- **Claves:** `hashlib.scrypt` con sal aleatoria de 16 bytes por usuario, comparación con
-  `secrets.compare_digest`. La clave en claro nunca se guarda en el objeto.
+- **Claves:** `hashlib.scrypt` con sal aleatoria de 16 bytes por usuario y factor de trabajo
+  `n=2**16`, comparación con `secrets.compare_digest`. El hash guarda sus propios parámetros,
+  `scrypt$n$r$p$sal$hash`, para que subir el costo mañana no invalide los hashes de hoy. La clave
+  en claro nunca se guarda en el objeto, y no hay ninguna credencial escrita en el código.
 - **Autorización:** tres roles en `Rol`, con su mapa de módulos en `Usuario._PERMISOS`.
   Las siete operaciones de escritura exigen el parámetro `solicitante` y pasan por `autorizar()`.
+- **Permisos del archivo:** la base queda en `0600`. SQLite la crea en `0644` y adentro hay
+  sueldos, así que el encapsulamiento no sirve de nada si cualquier usuario del equipo puede abrir
+  el archivo con otra herramienta.
 - **Path traversal:** `Informe.exportar()` resuelve la ruta destino y la rechaza si sale del
   directorio de trabajo.
+- **Inyección de fórmulas:** las celdas del CSV exportado que empiezan con `=`, `+`, `-` o `@`
+  salen con un apóstrofo delante, para que la planilla las lea como texto y no las ejecute.
+  `csv.writer` escapa lo que rompe el formato del archivo, no lo que la planilla interpreta
+  después.
 - **Validación de entrada:** el dominio rechaza salarios fuera de rango, contratos con fecha
-  futura, jornadas de más de 24 horas y contacto mal formado. La interfaz acota además todo
+  futura, jornadas de más de 24 horas, contacto mal formado y caracteres de control, que en un
+  programa de terminal permiten falsear la pantalla. La interfaz acota además todo
   entero tecleado, porque SQLite desborda más allá de 64 bits.
 - **Errores:** el bucle de `main.py` atrapa cada familia de `sqlite3.Error` por separado y
   cierra con un `except` general, de modo que ningún fallo tumba la sesión.
+
+### Lo que este sistema no cubre
+
+- **No hay autenticación.** La tabla `usuario` existe y ningún código la escribe: el menú
+  construye su solicitante al arrancar. Los roles protegen del uso incorrecto, no de un atacante,
+  porque nadie verifica la identidad de quien dice ser el administrador. El inicio de sesión es
+  materia de la unidad siguiente y agregarlo le pondría a `Usuario` métodos que el diagrama no
+  tiene.
+- **XSS y cabeceras HTTP no aplican.** No hay servidor ni salida HTML: la interfaz es una
+  terminal. Los dos contextos que aquí interpretan el dato, la planilla y la terminal, están
+  cubiertos arriba.
+- **Sin cifrado en reposo ni concurrencia.** La base es un archivo en claro y escribe un solo
+  proceso.
+
+El detalle de cada punto, con su reproducción, está en `docs/AUDITORIA.md` y `docs/AUDITORIA2.md`.
 
 ## Menú
 
