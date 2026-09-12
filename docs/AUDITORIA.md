@@ -190,6 +190,11 @@ Los cuatro módulos de la tabla de permisos pasaron a usarse de verdad, y los ro
 significar algo distinto entre sí: un `GERENTE` administra departamentos pero no borra empleados; un
 `EMPLEADO` no puede escribir nada.
 
+> **Actualización, 12-sep-2026.** `Empleado.asignar_departamento` ya no existe: la tercera pasada
+> (`AUDITORIA2.md`, sección 10) lo reemplazó por los métodos del UML. Hoy son nueve las operaciones
+> protegidas: se suman `Departamento.agregar_empleado` y `quitar_empleado` (`empleados`) y
+> `Departamento.asignar_gerente` (`departamentos`).
+
 Esto **no rompe la correspondencia con el diagrama**, porque los métodos del CRUD ya estaban fuera
 del UML por decisión declarada. La firma que sí está en el diagrama, `obtener_salario(solicitante)`,
 no se tocó.
@@ -249,6 +254,12 @@ más.
 El contraste está en la misma clase: `Departamento.listar_empleados()` devuelve `list(...)`, una
 copia, precisamente para que nadie modifique la lista interna desde fuera. Donde se pudo cerrar sin
 inventar métodos, se cerró.
+
+> **Actualización, 12-sep-2026.** La mitad de esta observación quedó cerrada por otra vía.
+> `Empleado._departamento` y la lista interna de `Departamento` se borraron: la relación vive solo
+> en la base, y `listar_empleados()` arma objetos nuevos desde las filas, así que no hay lista que
+> manipular. Sigue vigente para `Empleado._proyectos`, porque `Proyecto` todavía vive en memoria.
+> Detalle en `AUDITORIA2.md`, sección 10.
 
 ## 7. Observación 5 — Datos de contacto en el resumen · se documenta
 

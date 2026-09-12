@@ -301,14 +301,95 @@ vuelven reales el día que el hallazgo 7 se implemente.
 
 ---
 
-## 10. Cómo repetir esta auditoría
+## 10. Tercera pasada — La relación Departamento ↔ Empleado vivía en dos lugares · corregido
+
+**Fecha:** 12 de septiembre de 2026, por la tarde. No es seguridad, es **integridad de la
+persistencia**, pero es lo que evalúa el criterio 2.1.3 y va aquí para que las tres pasadas queden
+juntas.
+
+### El síntoma
+
+Un departamento con dos empleados asignados en la base, leído de nuevo:
+
+```
+resumen          : Departamento: Desarrollo Sostenible | Gerente: sin gerente | Empleados: 0
+contar_empleados : 2
+```
+
+`Informe.generar()` y `Departamento.buscar()` daban la misma línea. El menú no lo mostraba porque
+sus listados cuentan con `COUNT(*)`, pero un informe con datos reales mentía.
+
+### La causa, confirmada con experimento
+
+La agregación del diagrama tenía **dos fuentes de verdad que nunca se sincronizaban**: las listas
+`__empleados` y `__gerente` de `Departamento`, heredadas de la Unidad 1, y la clave foránea que
+agregó el CRUD.
+
+| Hipótesis | Experimento | Veredicto |
+|---|---|---|
+| La clave foránea no se guarda | leer `empleado.departamento_id` tras asignar | **Descartada**: los dos en 1 |
+| `listar()` y `buscar()` no llenan la lista en memoria | `listar_empleados()` tras `buscar()`, y agregar uno a mano | **Confirmada**: `[]`, y el resumen pasa a 1 con la base en 2 |
+| Nadie escribe `gerente_id` | asignar gerente, leer la columna, recargar | **Confirmada**: `None`, y vuelve «sin gerente» |
+
+### Los hallazgos
+
+| # | Hallazgo | Gravedad | Estado |
+|---|---|---|---|
+| 10.1 | `agregar_empleado` y `quitar_empleado` no escribían la clave foránea | Alta | **Corregido** |
+| 10.2 | `asignar_gerente` no escribía `gerente_id`, y ningún otro método lo hacía | Alta | **Corregido** |
+| 10.3 | `listar()` y `buscar()` devolvían departamentos sin empleados ni gerente | Alta | **Corregido** |
+| 10.4 | `Empleado.asignar_departamento` duplicaba a `agregar_empleado` por otro camino, y no está en el UML | Alta | **Corregido**, se borró |
+| 10.5 | Una gerente que se cambiaba de departamento seguía en el cargo del anterior | Media | **Corregido** |
+| 10.6 | La base se abría en el directorio de trabajo: lanzar el menú desde otra carpeta mostraba una base vacía | Media | **Corregido** |
+| 10.7 | Todo `IntegrityError` se informaba como «Ese correo ya está registrado» | Baja | **Corregido** |
+| 10.8 | Un segundo `guardar()` sobre el mismo objeto intentaba otro `INSERT` | Baja | **Corregido** |
+
+### La corrección
+
+**Se quitó la copia, no se sincronizó.** Sincronizar dos fuentes deja la puerta abierta a que se
+vuelvan a separar; con una sola, no hay nada que separar.
+
+- **Los métodos del UML escriben y leen la base.** `agregar_empleado`, `quitar_empleado` y
+  `asignar_gerente` hacen `UPDATE` sobre las claves foráneas; `listar_empleados` hace `SELECT`; y
+  `obtener_resumen` cuenta con `contar_empleados()`, el mismo `COUNT(*)` del menú. Se borraron
+  `__empleados`, `__gerente` y `Empleado._departamento`.
+- **Las reglas que cruzan tablas van en la misma transacción.** Mover a una gerente libera el cargo
+  anterior en el mismo `with conectar()`. «El gerente pertenece al departamento» va como `EXISTS`
+  dentro del `UPDATE`, así la comprobación y la escritura son una sola sentencia.
+- **Los tres métodos que escriben ganaron `solicitante`**, en el código y en `modelo_u2.drawio`, y
+  pasan por `autorizar()`. El módulo sale de la tabla que se escribe: `empleados` para agregar y
+  quitar, `departamentos` para el gerente. Con esto son nueve las operaciones protegidas.
+- **`exigir_guardado()`**, función de módulo junto a `autorizar()`, rechaza relacionar un objeto sin
+  id. Sin ella, `WHERE id = NULL` afecta cero filas y el método devolvería `False` sin decir por qué.
+- **10.6:** `RUTA_ACTIVA = str(Path(__file__).with_name("ecotech.db"))`.
+- **10.7:** `main.py` distingue con `error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE"`.
+- **10.8:** los dos `guardar()` lanzan `ValueError` si el objeto ya tiene id.
+
+**Queda declarado, no corregido:** `Proyecto` y `RegistroTiempo` siguen en memoria, y sus tablas no
+tienen código que las escriba. El CRUD de esta unidad es sobre las dos clases relacionadas que pide
+la evaluación; persistirlas es trabajo de la versión final.
+
+### La verificación
+
+- **La reproducción original, en verde:** el mismo escenario da
+  `Gerente: Emp 0 | Empleados: 2` en el resumen, en `contar_empleados()` y en el informe.
+- **La autoverificación** suma los casos: la relación leída con **otra instancia** que la que
+  escribió, el gerente ajeno rechazado, el cargo vacante al moverse y al borrarse la gerente,
+  relacionar un departamento sin guardar, el doble `guardar()`, quitar dos veces, y los tres
+  métodos nuevos sin permiso.
+- **El menú lanzado desde otra carpeta** crea y usa la base junto a `ecotech.py`.
+- **La sesión del menú** en `SALIDA_TERMINAL.md` se regeneró con el código nuevo.
+
+---
+
+## 11. Cómo repetir esta auditoría
 
 ```bash
 cd ecotech_new
 rm -f ecotech.db
 python3 ecotech.py            # autoverificación completa, imprime OK en ~1 s
 ls -l ecotech.db              # tiene que decir -rw-------
-python3 main.py               # s para sembrar, 2 y 6 para listar, 0 para salir
+python3 main.py               # 1 crea ejemplos, 4 y 5 listan, 0 para salir
 ```
 
 La autoverificación de `ecotech.py` quedó ampliada con los casos de esta pasada: el escape de
