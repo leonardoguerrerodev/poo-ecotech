@@ -7,6 +7,7 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
     python3 main.py
 """
 
+import os
 import secrets
 import sqlite3
 from datetime import date
@@ -36,6 +37,12 @@ MENU = """
 MAXIMO_ENTERO = 10**9
 
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
+
+
+def limpiar_y_mostrar_menu() -> None:
+    """Limpia la terminal y vuelve a dibujar el menú principal."""
+    os.system("cls" if os.name == "nt" else "clear")
+    print(MENU)
 
 
 # --- Entrada validada del usuario ------------------------------------
@@ -231,7 +238,7 @@ def main() -> None:
 
     solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
                           Rol.ADMIN_RRHH)
-    print(MENU)
+    limpiar_y_mostrar_menu()
 
     while True:
         try:
@@ -240,7 +247,7 @@ def main() -> None:
                 print("   Hasta luego.")
                 return
             if opcion == "m":
-                print(MENU)
+                limpiar_y_mostrar_menu()
                 continue
             ejecutar(opcion, solicitante)
         except Cancelado:
@@ -264,6 +271,13 @@ def main() -> None:
             return
         except Exception as error:
             print(f"   ! Error inesperado ({type(error).__name__}): {error}")
+
+        try:
+            input("\n   Presione Enter para continuar...")
+        except (KeyboardInterrupt, EOFError):
+            print("\n   Interrumpido. Hasta luego.")
+            return
+        limpiar_y_mostrar_menu()
 
 
 if __name__ == "__main__":

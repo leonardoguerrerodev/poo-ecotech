@@ -15,6 +15,7 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
 # la evaluación, y su relación es la más ilustrativa, una agregación 1..N
 # donde borrar el todo no borra las partes. La opción 9 lo demuestra en vivo.
 
+import os
 import secrets
 import sqlite3
 from datetime import date
@@ -63,6 +64,14 @@ MAXIMO_ENTERO = 10**9
 # Las opciones que piden algo por teclado, y por lo tanto las únicas donde
 # tiene sentido avisar que x cancela. La 1, la 4 y la 5 no preguntan nada.
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
+
+
+# Centraliza el retorno visual: usa el comando nativo de cada sistema y deja
+# una sola forma de redibujar el menú inicial.
+def limpiar_y_mostrar_menu() -> None:
+    """Limpia la terminal y vuelve a dibujar el menú principal."""
+    os.system("cls" if os.name == "nt" else "clear")
+    print(MENU)
 
 
 # --- Entrada validada del usuario ------------------------------------
@@ -345,7 +354,7 @@ def main() -> None:
     # constructor rechazaría la clave una vez cada tantos arranques.
     solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
                           Rol.ADMIN_RRHH)
-    print(MENU)
+    limpiar_y_mostrar_menu()
 
     # EL BUCLE QUE NO SE CAE: el try va DENTRO del while. Afuera, la primera
     # excepción termina el programa; adentro, se imprime el motivo y la
@@ -358,7 +367,7 @@ def main() -> None:
                 print("   Hasta luego.")
                 return
             if opcion == "m":
-                print(MENU)
+                limpiar_y_mostrar_menu()
                 continue
             ejecutar(opcion, solicitante)
 
@@ -420,6 +429,15 @@ def main() -> None:
         # `Exception` no cubre KeyboardInterrupt ni SystemExit.
         except Exception as error:
             print(f"   ! Error inesperado ({type(error).__name__}): {error}")
+
+        # La salida de cada opción queda visible hasta que el usuario decida
+        # continuar; entonces se vuelve al mismo punto de partida visual.
+        try:
+            input("\n   Presione Enter para continuar...")
+        except (KeyboardInterrupt, EOFError):
+            print("\n   Interrumpido. Hasta luego.")
+            return
+        limpiar_y_mostrar_menu()
 
 
 # Permite importar este módulo sin que arranque el menú.
