@@ -29,11 +29,9 @@ en cualquier dato cancela la acción sin guardar.
 
 ### Por qué dos archivos
 
-- **El docente pidió no separar el código clase por clase.** La versión anterior tenía dieciocho
-  archivos.
 - **Cada archivo tiene una sola responsabilidad.** `ecotech.py` es el sistema: las clases, la base de
   datos y las reglas. `main.py` es solo la pantalla: pide datos, llama a las clases y muestra el
-  resultado, sin SQL. Si mañana la interfaz fuera web, `ecotech.py` no cambia.
+  resultado, sin SQL. Si a futuro la interfaz fuera web, `ecotech.py` no cambia.
 - **`ecotech.py` se prueba solo**, sin abrir el menú: `python3 ecotech.py`.
 - **Juntar las clases en un archivo resolvió problemas reales:** se acabaron las importaciones
   circulares entre clases y un acceso a datos privados desde fuera de su clase.
@@ -45,16 +43,20 @@ en cualquier dato cancela la acción sin guardar.
 Cada caja del UML es una clase en `ecotech.py`, con los mismos atributos y en el mismo orden. La
 visibilidad se tradujo literal: privado (`-`) es `__atributo`, protegido (`#`) es `_atributo`.
 
-| Clase | Qué representa | Se guarda en la base |
+Al arrancar se crean las seis tablas del modelo, pero **en esta unidad solo `Empleado` y
+`Departamento` se guardan y se leen de la base**, porque son las dos clases relacionadas que pide el
+CRUD de la evaluación (ver [El CRUD](#el-crud)). Las demás tablas quedan listas para la versión final.
+
+| Clase | Qué representa | En la base, en esta unidad |
 |---|---|---|
-| `EntidadReportable` | Abstracta. Todo lo que puede aparecer en un informe | — |
-| `Persona` | Abstracta. Nombre, dirección y contacto validados | — |
-| `Empleado` | Hereda de `Persona`. Contrato y salario | ✅ tabla `empleado` |
-| `Departamento` | Agrupa empleados y tiene gerente | ✅ tabla `departamento` |
-| `Proyecto` | Empleados asignados y horas consumidas | en memoria (tabla lista) |
-| `RegistroTiempo` | Horas trabajadas en un proyecto | en memoria (tabla lista) |
-| `Usuario` | Credencial y rol | Unidad 3 (tabla lista) |
-| `Informe` | Resumen generado a partir de cualquier entidad | — (se calcula al vuelo) |
+| `EntidadReportable` | Abstracta. Todo lo que puede aparecer en un informe | sin tabla propia: aporta el id a sus hijas |
+| `Persona` | Abstracta. Nombre, dirección y contacto validados | sin tabla propia: sus datos van en la tabla `empleado` |
+| `Empleado` | Hereda de `Persona`. Contrato y salario | ✅ **con CRUD** · tabla `empleado` |
+| `Departamento` | Agrupa empleados y tiene gerente | ✅ **con CRUD** · tabla `departamento` |
+| `Proyecto` | Empleados asignados y horas consumidas | tabla creada, sin CRUD todavía: vive en memoria |
+| `RegistroTiempo` | Horas trabajadas en un proyecto | tabla creada, sin CRUD todavía: vive en memoria |
+| `Usuario` | Credencial y rol | tabla creada: se escribe con el inicio de sesión (Unidad 3) |
+| `Informe` | Resumen generado a partir de cualquier entidad | sin tabla: se calcula al vuelo |
 
 ### Las relaciones
 
