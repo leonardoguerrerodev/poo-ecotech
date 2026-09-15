@@ -37,6 +37,10 @@ MAXIMO_ENTERO = 10**9
 
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
 
+PIDE_ID_DEPARTAMENTO = "   Id del departamento: "
+PIDE_ID_EMPLEADO = "   Id del empleado: "
+INTERRUMPIDO = "\n   Interrumpido. Hasta luego."
+
 
 def limpiar_y_mostrar_menu() -> None:
     """Limpia la terminal y vuelve a dibujar el menú principal."""
@@ -118,16 +122,19 @@ def listar_empleados() -> None:
 
 # --- Datos de ejemplo -------------------------------------------------
 
+DESARROLLO = "Desarrollo Sostenible"
+INVESTIGACION = "Investigación y Desarrollo"
+
 PLANTILLA = [
     ("Juanita Bravo Sepúlveda", "Av. Matta 1234, Santiago",
      "+56 9 8765 4321", "jbravo@ecotech.cl", date(2023, 4, 17), 1450000,
-     "Desarrollo Sostenible"),
+     DESARROLLO),
     ("Ignacio Fuentes Cárdenas", "Los Carrera 890, Valparaíso",
      "+56 9 6543 2109", "ifuentes@ecotech.cl", date(2022, 11, 2), 1980000,
-     "Desarrollo Sostenible"),
+     DESARROLLO),
     ("Camila Reyes Ortiz", "Pedro de Valdivia 55, Providencia",
      "+56 9 7412 8536", "creyes@ecotech.cl", date(2024, 1, 8), 1260000,
-     "Investigación y Desarrollo"),
+     INVESTIGACION),
 ]
 
 
@@ -138,8 +145,7 @@ def sembrar(solicitante: Usuario) -> None:
               "sobre una base vacía.")
         return
     departamentos = {
-        nombre: Departamento(nombre)
-        for nombre in ("Desarrollo Sostenible", "Investigación y Desarrollo")
+        nombre: Departamento(nombre) for nombre in (DESARROLLO, INVESTIGACION)
     }
     for departamento in departamentos.values():
         departamento.guardar(solicitante)
@@ -152,6 +158,70 @@ def sembrar(solicitante: Usuario) -> None:
           f"y {len(PLANTILLA)} empleados.")
 
 
+# --- Opciones que piden datos -----------------------------------------
+
+def crear_departamento(solicitante: Usuario) -> None:
+    departamento = Departamento(pedir_texto("   Nombre: "))
+    print("   Departamento creado con id "
+          f"{departamento.guardar(solicitante)}.")
+
+
+def contratar_empleado(solicitante: Usuario) -> None:
+    empleado = Empleado(pedir_texto("   Nombre completo: "),
+                        pedir_texto("   Dirección: "),
+                        pedir_texto("   Teléfono: "),
+                        pedir_texto("   Correo: "),
+                        pedir_fecha("   Inicio de contrato (AAAA-MM-DD): "),
+                        pedir_entero("   Salario: "))
+    print(f"   Empleado contratado con id {empleado.guardar(solicitante)}.")
+
+
+def renombrar_departamento(solicitante: Usuario) -> None:
+    departamento = buscar_o_avisar(Departamento,
+                                   pedir_entero(PIDE_ID_DEPARTAMENTO))
+    if departamento and departamento.renombrar(
+            pedir_texto("   Nuevo nombre: "), solicitante):
+        print(f"   Ahora se llama {departamento.obtener_nombre()}.")
+
+
+def editar_contacto() -> None:
+    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    if empleado:
+        empleado.actualizar_contacto(pedir_texto("   Nuevo teléfono: "),
+                                     pedir_texto("   Nuevo correo: "))
+        print(f"   {empleado.obtener_resumen()}")
+
+
+def asignar_a_departamento(solicitante: Usuario) -> None:
+    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    if empleado is None:
+        return
+    departamento = buscar_o_avisar(Departamento,
+                                   pedir_entero(PIDE_ID_DEPARTAMENTO))
+    if departamento is None:
+        return
+    if departamento.agregar_empleado(empleado, solicitante):
+        print(f"   {empleado.obtener_nombre()} quedó en "
+              f"{departamento.obtener_nombre()}.")
+    else:
+        print(f"   ! {empleado.obtener_nombre()} ya pertenecía a "
+              f"{departamento.obtener_nombre()}.")
+
+
+def eliminar_departamento(solicitante: Usuario) -> None:
+    departamento = buscar_o_avisar(Departamento,
+                                   pedir_entero(PIDE_ID_DEPARTAMENTO))
+    if departamento and departamento.eliminar(solicitante):
+        print("   Departamento eliminado. Sus empleados siguen vigentes, "
+              "sin departamento: la agregación es ON DELETE SET NULL.")
+
+
+def eliminar_empleado(solicitante: Usuario) -> None:
+    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    if empleado and empleado.eliminar(solicitante):
+        print("   Empleado eliminado, junto con sus registros de tiempo.")
+
+
 # --- Despacho ---------------------------------------------------------
 
 def ejecutar(opcion: str, solicitante: Usuario) -> None:
@@ -161,73 +231,73 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
     # --- C: crear
     if opcion == "1":
         sembrar(solicitante)
-
     elif opcion == "2":
-        departamento = Departamento(pedir_texto("   Nombre: "))
-        print("   Departamento creado con id "
-              f"{departamento.guardar(solicitante)}.")
-
+        crear_departamento(solicitante)
     elif opcion == "3":
-        empleado = Empleado(pedir_texto("   Nombre completo: "),
-                            pedir_texto("   Dirección: "),
-                            pedir_texto("   Teléfono: "),
-                            pedir_texto("   Correo: "),
-                            pedir_fecha("   Inicio de contrato (AAAA-MM-DD): "),
-                            pedir_entero("   Salario: "))
-        print(f"   Empleado contratado con id {empleado.guardar(solicitante)}.")
-
+        contratar_empleado(solicitante)
     # --- R: leer
     elif opcion == "4":
         listar_departamentos()
-
     elif opcion == "5":
         listar_empleados()
-
     # --- U: actualizar
     elif opcion == "6":
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento and departamento.renombrar(
-                pedir_texto("   Nuevo nombre: "), solicitante):
-            print(f"   Ahora se llama {departamento.obtener_nombre()}.")
-
+        renombrar_departamento(solicitante)
     elif opcion == "7":
-        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
-        if empleado:
-            empleado.actualizar_contacto(pedir_texto("   Nuevo teléfono: "),
-                                         pedir_texto("   Nuevo correo: "))
-            print(f"   {empleado.obtener_resumen()}")
-
+        editar_contacto()
     elif opcion == "8":
-        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
-        if empleado is None:
-            return
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento is None:
-            return
-        if departamento.agregar_empleado(empleado, solicitante):
-            print(f"   {empleado.obtener_nombre()} quedó en "
-                  f"{departamento.obtener_nombre()}.")
-        else:
-            print(f"   ! {empleado.obtener_nombre()} ya pertenecía a "
-                  f"{departamento.obtener_nombre()}.")
-
+        asignar_a_departamento(solicitante)
     # --- D: eliminar
     elif opcion == "9":
-        departamento = buscar_o_avisar(Departamento,
-                                       pedir_entero("   Id del departamento: "))
-        if departamento and departamento.eliminar(solicitante):
-            print("   Departamento eliminado. Sus empleados siguen vigentes, "
-                  "sin departamento: la agregación es ON DELETE SET NULL.")
-
+        eliminar_departamento(solicitante)
     elif opcion == "10":
-        empleado = buscar_o_avisar(Empleado, pedir_entero("   Id del empleado: "))
-        if empleado and empleado.eliminar(solicitante):
-            print("   Empleado eliminado, junto con sus registros de tiempo.")
-
+        eliminar_empleado(solicitante)
     else:
         print("   ! Opción desconocida.")
+
+
+# --- Bucle del menú ---------------------------------------------------
+
+def pedir_opcion() -> str | None:
+    try:
+        return input("\n   Opción: ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+def atender(opcion: str, solicitante: Usuario) -> bool:
+    """Ejecuta la opción y traduce cada error a un mensaje. False: salir."""
+    try:
+        ejecutar(opcion, solicitante)
+    except Cancelado:
+        print("   Acción cancelada. No se guardó nada.")
+    except sqlite3.IntegrityError as error:
+        if error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
+            print("   ! Ese correo ya está registrado. Use otro.")
+        else:
+            print("   ! La base rechazó el dato por una restricción. "
+                  "No se guardó nada.")
+    except sqlite3.OperationalError as error:
+        print(f"   ! No se pudo acceder a la base de datos: {error}")
+    except sqlite3.Error:
+        print("   ! La base rechazó la operación. No se guardó nada.")
+    except PermissionError as error:
+        print(f"   ! {error}")
+    except ValueError as error:
+        print(f"   ! {error}")
+    except (KeyboardInterrupt, EOFError):
+        return False
+    except Exception as error:
+        print(f"   ! Error inesperado ({type(error).__name__}): {error}")
+    return True
+
+
+def pausar() -> bool:
+    try:
+        input("\n   Presione Enter para continuar...")
+    except (KeyboardInterrupt, EOFError):
+        return False
+    return True
 
 
 def main() -> None:
@@ -242,38 +312,12 @@ def main() -> None:
     limpiar_y_mostrar_menu()
 
     while True:
-        try:
-            opcion = input("\n   Opción: ").strip().lower()
-            if opcion == "0":
-                print("   Hasta luego.")
-                return
-            ejecutar(opcion, solicitante)
-        except Cancelado:
-            print("   Acción cancelada. No se guardó nada.")
-        except sqlite3.IntegrityError as error:
-            if error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
-                print("   ! Ese correo ya está registrado. Use otro.")
-            else:
-                print("   ! La base rechazó el dato por una restricción. "
-                      "No se guardó nada.")
-        except sqlite3.OperationalError as error:
-            print(f"   ! No se pudo acceder a la base de datos: {error}")
-        except sqlite3.Error:
-            print("   ! La base rechazó la operación. No se guardó nada.")
-        except PermissionError as error:
-            print(f"   ! {error}")
-        except ValueError as error:
-            print(f"   ! {error}")
-        except (KeyboardInterrupt, EOFError):
-            print("\n   Interrumpido. Hasta luego.")
+        opcion = pedir_opcion()
+        if opcion == "0":
+            print("   Hasta luego.")
             return
-        except Exception as error:
-            print(f"   ! Error inesperado ({type(error).__name__}): {error}")
-
-        try:
-            input("\n   Presione Enter para continuar...")
-        except (KeyboardInterrupt, EOFError):
-            print("\n   Interrumpido. Hasta luego.")
+        if opcion is None or not atender(opcion, solicitante) or not pausar():
+            print(INTERRUMPIDO)
             return
         limpiar_y_mostrar_menu()
 

@@ -24,9 +24,19 @@ en cualquier dato cancela la acción sin guardar.
 |---|---|
 | `ecotech.py` | El sistema: validaciones, tablas de la base, las 8 clases del UML y sus operaciones CRUD |
 | `main.py` | El menú de terminal. No tiene ni una línea de SQL: solo llama a los métodos de las clases |
-| `comentado/` | El mismo código explicado. `*_corto.py` trae un comentario breve por pieza; `Comments_Explicacion_Larga/` trae la justificación completa de cada decisión |
 | `diagramas/` | El diagrama de clases vigente (`modelo_u2.drawio` y sus imágenes clara y oscura) y el de la Unidad 1 (`modelo_final.drawio`) |
-| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en cuatro pasadas: lo que encontramos y cómo lo corregimos |
+| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en cinco pasadas: lo que encontramos y cómo lo corregimos |
+
+### Por qué dos archivos
+
+- **El docente pidió no separar el código clase por clase.** La versión anterior tenía dieciocho
+  archivos.
+- **Cada archivo tiene una sola responsabilidad.** `ecotech.py` es el sistema: las clases, la base de
+  datos y las reglas. `main.py` es solo la pantalla: pide datos, llama a las clases y muestra el
+  resultado, sin SQL. Si mañana la interfaz fuera web, `ecotech.py` no cambia.
+- **`ecotech.py` se prueba solo**, sin abrir el menú: `python3 ecotech.py`.
+- **Juntar las clases en un archivo resolvió problemas reales:** se acabaron las importaciones
+  circulares entre clases y un acceso a datos privados desde fuera de su clase.
 
 ## Cómo está construido
 
@@ -106,7 +116,7 @@ Es el foco de la asignatura, así que la resumimos punto por punto:
 - **Autoverificación** (`python3 ecotech.py`): prueba con `assert` las reglas del dominio, los
   permisos, el CRUD completo, las relaciones leídas desde la base y la exportación. Termina en
   `OK` o se detiene en la regla que falló.
-- **Auditoría de seguridad en cuatro pasadas** (`docs/AUDITORIA.md`). Encontró, entre
+- **Auditoría de seguridad en cinco pasadas** (`docs/AUDITORIA.md`). Encontró, entre
   otras cosas, que un número de 25 dígitos cerraba el programa y que borrar un empleado no pedía
   permiso. Las dos cosas se corrigieron y hoy tienen su prueba.
 
@@ -143,7 +153,6 @@ código, para no romper la correspondencia entre los dos.
 - La base no está cifrada y está pensada para un solo usuario a la vez.
 - La limpieza de pantalla usa códigos ANSI: la consola antigua de Windows (`cmd` sin modo VT) los
   muestra como texto. Windows Terminal, Linux y macOS funcionan bien.
-- Los archivos de `comentado/` son para leer. Se ejecuta la raíz.
 
 ## El menú
 

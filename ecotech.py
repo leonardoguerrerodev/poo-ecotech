@@ -29,9 +29,9 @@ from pathlib import Path                    # rutas: ubica la base y bloquea esc
 # 1. VALIDACIONES Y AUTORIZACIÓN COMPARTIDAS
 # =====================================================================
 
-PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
+PATRON_CORREO = re.compile(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+")
 PATRON_USUARIO = re.compile(r"[a-z0-9._-]{3,20}")
-PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9][0-9]{8}")
+PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9]\d{8}", re.ASCII)
 SEPARADORES = re.compile(r"[\s()\-.]")
 
 SALARIO_MAXIMO = 100_000_000
@@ -489,6 +489,7 @@ class Proyecto(EntidadReportable):
 
     def obtener_resumen(self) -> str:
         return (f"Proyecto: {self.__nombre} | "
+                f"Descripción: {self.__descripcion} | "
                 f"Inicio: {self._fecha_inicio.isoformat()} | "
                 f"Empleados: {len(self.__empleados)} | "
                 f"Horas consumidas: {self.horas_consumidas():.2f}")
@@ -538,7 +539,7 @@ class Usuario:
         if not PATRON_USUARIO.fullmatch(nombre_usuario):
             raise ValueError(f"Nombre de usuario inválido: {nombre_usuario!r}")
         self._id = id
-        self.__nombre_usuario = nombre_usuario
+        self.__nombre_usuario = nombre_usuario  # NOSONAR: se lee al guardar y autenticar, Unidad 3
         self.__rol = rol
         if hash_clave is not None:
             self.__hash_clave = hash_clave
@@ -648,6 +649,7 @@ def _rechaza(accion, excepcion=ValueError) -> bool:
 def _autoverificar() -> None:
     hoy = date.today()
     contrato = date(2024, 3, 1)
+    calle, correo = "Calle 1", "j@e.cl"
     admin = Usuario("rrhh.admin", "Clave-RRHH-2026", Rol.ADMIN_RRHH)
     basico = Usuario("j.bravo", "Clave-Bravo-2026", Rol.EMPLEADO)
 
@@ -657,13 +659,13 @@ def _autoverificar() -> None:
 
     # --- Lo que el dominio debe rechazar
     assert _rechaza(lambda: nueva("sin-arroba")), "correo sin @"
-    assert _rechaza(lambda: Empleado("J", "Calle 1", "123", "j@e.cl",
+    assert _rechaza(lambda: Empleado("J", calle, "123", correo,
                                      contrato, 1000)), "teléfono corto"
-    assert _rechaza(lambda: Empleado("J", "Calle 1", "229876543", "j@e.cl",
+    assert _rechaza(lambda: Empleado("J", calle, "229876543", correo,
                                      contrato, 0)), "salario cero"
-    assert _rechaza(lambda: Empleado("J", "Calle 1", "229876543", "j@e.cl",
+    assert _rechaza(lambda: Empleado("J", calle, "229876543", correo,
                                      contrato, 10**25)), "salario desbordado"
-    assert _rechaza(lambda: Empleado("J", "Calle 1", "229876543", "j@e.cl",
+    assert _rechaza(lambda: Empleado("J", calle, "229876543", correo,
                                      date(2099, 1, 1), 1000)), "contrato futuro"
     assert _rechaza(lambda: RegistroTiempo(hoy, 25, "x")), "más de 24 horas"
     assert _rechaza(lambda: Departamento("   ")), "nombre en blanco"
@@ -671,8 +673,8 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: Departamento("Legal\x1b[2J")), "escape de terminal"
     assert _rechaza(lambda: nueva("j\x1bbravo@ecotech.cl")), "correo con escape"
     assert _rechaza(lambda: nueva("a@" + "b" * 260 + ".cl")), "correo sin tope"
-    assert _rechaza(lambda: Departamento("Legal‮")), "marca bidi"
-    assert _rechaza(lambda: Empleado("J", "Calle 1", "٩٨٧٦٥٤٣٢١", "j@e.cl",
+    assert _rechaza(lambda: Departamento("Legal\u202e")), "marca bidi"
+    assert _rechaza(lambda: Empleado("J", calle, "\u0669\u0668\u0667\u0666\u0665\u0664\u0663\u0662\u0661", correo,
                                      contrato, 1000)), "dígitos no ASCII"
     assert _rechaza(lambda: nueva().obtener_salario(basico),
                     PermissionError), "salario sin permiso"
@@ -692,7 +694,7 @@ def _autoverificar() -> None:
 
     # --- CRUD sobre las dos clases relacionadas
     crear_tablas()
-    assert oct(os.stat(RUTA_ACTIVA).st_mode)[-3:] == "600", "base legible por otros"
+    assert oct(os.stat(RUTA_ACTIVA).st_mode).endswith("600"), "base legible por otros"
 
     dep = Departamento("Desarrollo Sostenible")
     id_dep = dep.guardar(admin)                                     # C

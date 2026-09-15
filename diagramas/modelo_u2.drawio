@@ -14,7 +14,7 @@
           <mxGeometry height="315" width="565" x="20" y="658" as="geometry" />
         </mxCell>
         <mxCell id="n4" parent="1" style="swimlane;fontStyle=3;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=48;horizontalStack=0;resizeParent=1;resizeParentMax=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="«abstracta»&lt;br&gt;Persona" vertex="1">
-          <mxGeometry height="272" width="400" x="453" y="86" as="geometry" />
+          <mxGeometry height="320" width="400" x="453" y="86" as="geometry" />
         </mxCell>
         <mxCell id="n6" parent="n4" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- nombre: str" vertex="1">
           <mxGeometry height="24" width="400" y="48" as="geometry" />
@@ -45,6 +45,12 @@
         </mxCell>
         <mxCell id="n218" parent="n4" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# validarTelefono(telefono: str): bool" vertex="1">
           <mxGeometry height="24" width="400" y="248" as="geometry" />
+        </mxCell>
+        <mxCell id="n220" parent="n4" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- fijarContacto(telefono: str, correo: str): void" vertex="1">
+          <mxGeometry height="24" width="400" y="272" as="geometry" />
+        </mxCell>
+        <mxCell id="n221" parent="n4" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# datosContacto(): tuple" vertex="1">
+          <mxGeometry height="24" width="400" y="296" as="geometry" />
         </mxCell>
         <mxCell id="n15" parent="1" style="swimlane;fontStyle=1;align=center;verticalAlign=top;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Empleado" vertex="1">
           <mxGeometry height="182" width="460" x="423" y="432" as="geometry" />
@@ -175,7 +181,7 @@
         <mxCell id="n59" parent="n51" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="+ tienePermiso(modulo: str): bool" vertex="1">
           <mxGeometry height="24" width="360" y="182" as="geometry" />
         </mxCell>
-        <mxCell id="n216" parent="n51" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# &lt;u&gt;hashear(clave: str, sal: bytes): str&lt;/u&gt;" vertex="1">
+        <mxCell id="n216" parent="n51" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# &lt;u&gt;hashear(clave: str, sal: bytes, costo: tuple): str&lt;/u&gt;" vertex="1">
           <mxGeometry height="24" width="360" y="206" as="geometry" />
         </mxCell>
         <mxCell id="n219" parent="n51" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# validarClave(clave: str): bool" vertex="1">
@@ -223,7 +229,7 @@
         <mxCell id="n76" edge="1" parent="1" source="n22" style="endArrow=none;startArrow=diamondThin;startFill=0;startSize=16;html=1;edgeStyle=orthogonalEdgeStyle;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="n15" value="contiene">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="n77" connectable="0" parent="n76" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="1" vertex="1">
+        <mxCell id="n77" connectable="0" parent="n76" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="0..1" vertex="1">
           <mxGeometry relative="1" x="-0.82" as="geometry">
             <mxPoint as="offset" />
           </mxGeometry>

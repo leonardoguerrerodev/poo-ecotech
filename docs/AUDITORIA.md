@@ -9,6 +9,7 @@
 | 2 | 12-sep-2026 | permisos del archivo, salida a contextos que interpretan datos, hash de claves, autenticación |
 | 3 | 12-sep-2026 | integridad de la persistencia: la relación Departamento ↔ Empleado |
 | 4 | 15-sep-2026 | revisión de entradas y del código aportado por un compañero |
+| 5 | 15-sep-2026 | análisis de SonarCloud sobre el repositorio de GitHub (§2.10) |
 
 **Método:** ejecutar ataques concretos contra el código, no leerlo y opinar. Cada hallazgo trae su
 reproducción y se puede repetir delante del docente.
@@ -34,6 +35,7 @@ Evalúan esto sobre todo los indicadores **2.1.2** (encapsulamiento), **2.1.3** 
 | 2.7 | Clave literal en el código fuente | 2 | Media | **Corregido** |
 | 2.8 | La relación Departamento ↔ Empleado vivía en dos lugares | 3 | Alta | **Corregido** |
 | 2.9 | Limpieza de pantalla con `os.system` | 4 | Baja | **Corregido** |
+| 2.10 | SonarCloud: carácter bidireccional, regex super-lineal, complejidad y 13 más | 5 | Media | **Corregido** (uno anotado para la Unidad 3) |
 | 3.1 | `actualizar_contacto` no pide permiso | 1 | Decisión | Se declara |
 | 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | Se declara |
 | 3.3 | Datos de contacto en el resumen exportable | 1 | Observación | Se declara |
@@ -193,9 +195,10 @@ corrompe el informe.
 - *(Pasada 4)* El filtro de la pasada 2 miraba solo los códigos menores a 32 y el 127, y dejaba pasar
   **caracteres de control C1 y marcas invisibles** como U+202E, que hace que un nombre **se vea al
   revés**. Además:
-  - el correo **no tenía tope de largo**, y su regex tarda en proporción al cuadrado del largo ante
-    una entrada armada para fallar al final;
-  - el patrón del teléfono usaba `\d`, que acepta dígitos de cualquier alfabeto (`٩٨٧٦٥٤٣٢١`).
+  - el correo **no tenía tope de largo**, y su regex tardaba en proporción al cuadrado del largo
+    ante una entrada armada para fallar al final;
+  - el patrón del teléfono usaba `\d`, que acepta dígitos de cualquier alfabeto (los árabes, U+0660 a
+    U+0669).
 
 **Cómo quedó:**
 
@@ -203,8 +206,8 @@ corrompe el informe.
 |---|---|
 | `texto()` | rechaza lo **no imprimible** con `isprintable()`. Cubre todo texto obligatorio: nombres, dirección, correo, descripciones y título. Costo: también rechaza el espacio duro (U+00A0) |
 | `Persona.__fijar_contacto()` | el correo pasa por `texto(correo, "El correo", 254)` **antes** de la regex |
-| `PATRON_CORREO` | sus clases negadas excluyen `\x00-\x1f\x7f` |
-| `PATRON_TELEFONO` | `[0-9]` en vez de `\d` |
+| `PATRON_CORREO` | regex lineal `[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+`; los controles ya los rechazó `texto()` (pasada 5, §2.10) |
+| `PATRON_TELEFONO` | `\d` con `re.ASCII`: solo dígitos 0-9 (pasada 5, §2.10) |
 
 Se **rechaza** en vez de limpiar, como el resto del archivo: `ValueError` con el campo nombrado.
 **Evidencia:** la autoverificación prueba el escape en un nombre y en el correo, un correo de 265
@@ -288,6 +291,192 @@ PATH**: un `clear` falso puesto antes en el PATH se ejecutaría. Analizadores co
 (B605, B607). Se reemplazó por la secuencia ANSI `"\033[2J\033[H"`, que es texto y no un proceso.
 Límite conocido: la consola antigua de Windows muestra los códigos en vez de borrar.
 
+### 2.10 Análisis de SonarCloud · Media
+
+*(Pasada 5 · 15-sep-2026)*
+
+**Qué es y cómo se leyó.** SonarCloud analiza el repositorio `poo-ecotech` en GitHub cada vez que se
+sube código a la rama `main`, y marca problemas de seguridad, confiabilidad y mantenibilidad. Los
+issues se leyeron desde su API pública (`api/issues/search`, estados abiertos y confirmados) y los
+*security hotspots* desde `api/hotspots/search`, que devolvió cero.
+
+#### Qué encontró: 51 issues abiertos
+
+| Calidad | Issues | Reglas |
+|---|---|---|
+| **Seguridad** | 3 | S6389 · carácter bidireccional en el código |
+| **Confiabilidad** | 3 | S8786 · regex con retroceso super-lineal |
+| **Mantenibilidad** | 45 | S1192, S3776, S4487, S5869, S6353, S6659, S1135 |
+
+| Archivo | Issues | Observación |
+|---|---|---|
+| `ecotech.py` | 11 | los originales del sistema |
+| `main.py` | 5 | los originales del menú |
+| `comentado/ecotech_corto.py` | 12 | los mismos de `ecotech.py`, más un falso positivo «TODO» |
+| `comentado/Comments_Explicacion_Larga/ecotech_largo.py` | 13 | los mismos de `ecotech.py`, más dos falsos positivos «TODO» |
+| `comentado/main_corto.py` | 5 | los mismos de `main.py` |
+| `comentado/Comments_Explicacion_Larga/main_largo.py` | 5 | los mismos de `main.py` |
+
+**35 de los 51 estaban en los espejos comentados**, que son el mismo código que la raíz con más
+comentarios. Por eso cada issue real aparecía tres veces. Además, SonarCloud reportaba **código
+duplicado**: tampoco era un defecto, porque los espejos repiten la raíz a propósito. Las dos cosas se
+resolvieron **sacando `comentado/` del repositorio** (`git rm -r --cached comentado` y la carpeta en el
+`.gitignore`). Los espejos siguen existiendo en la carpeta local como material de estudio para la
+defensa.
+
+Quedan **16 issues reales**, todos en `ecotech.py` y `main.py`, más los 3 falsos positivos de los
+espejos. Uno por uno:
+
+#### S6389 · Carácter bidireccional en el código · Seguridad, media · 3 issues
+
+**Qué dice la regla.** Un carácter de control bidireccional (U+202A a U+202E, U+2066 a U+2069) pegado
+en el código fuente puede hacer que un editor **muestre el código en un orden distinto al que se
+ejecuta**. Es el ataque conocido como «Trojan Source» (CVE-2021-42574): una revisión humana lee una
+cosa y el intérprete ejecuta otra.
+
+**Qué había.** `ecotech.py:674` y la misma línea en los dos espejos. La prueba «marca bidi» de la
+autoverificación tenía el carácter U+202E (RIGHT-TO-LEFT OVERRIDE) **escrito literal** dentro del
+texto de prueba, invisible en pantalla:
+
+```python
+assert _rechaza(lambda: Departamento("Legal<U+202E invisible>")), "marca bidi"
+```
+
+**Diagnóstico: real.** Se confirmó leyendo los bytes del archivo. No había lógica escondida: el
+carácter estaba solo dentro de un dato de prueba, justo el que comprueba que `texto()` lo rechaza. Pero
+la regla tiene razón: el código fuente no debe contener ese carácter. El escape se había pedido como
+`\u202e` y quedó guardado el carácter real.
+
+**Reparación.** El dato de prueba se escribe con el escape de Python, que produce el mismo texto en
+ejecución sin que el carácter esté en el archivo. Lo mismo se hizo con los dígitos árabes de la línea
+siguiente: no son controles bidireccionales y SonarCloud no los marcaba, pero son del mismo tipo de
+problema.
+
+```python
+assert _rechaza(lambda: Departamento("Legal\u202e")), "marca bidi"
+assert _rechaza(lambda: Empleado("J", calle, "\u0669\u0668\u0667\u0666\u0665\u0664\u0663\u0662\u0661", correo,
+                                 contrato, 1000)), "dígitos no ASCII"
+```
+
+**Verificación.**
+- Un recorrido de todos los `.py` y `.md` buscando U+202A a U+202E, U+2066 a U+2069 y dígitos
+  U+0660 a U+0669 no encuentra ninguno.
+- La autoverificación sigue en `OK`: la prueba todavía rechaza la marca invisible.
+
+#### S8786 y S5869 · La regex del correo · Confiabilidad media y mantenibilidad · 4 issues
+
+**Qué dicen las reglas.**
+- **S8786:** la expresión puede tardar tiempo super-lineal por *backtracking*: con una entrada armada
+  para fallar al final, el motor prueba muchísimas combinaciones.
+- **S5869:** la clase de caracteres tiene elementos repetidos.
+
+**Qué había** (`ecotech.py:32`):
+```python
+PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
+```
+
+**Diagnóstico: real, las dos.**
+- **Repetidos:** `\s` ya incluye tabulación, salto de línea y otros caracteres que también están en
+  `\x00-\x1f`. SonarCloud lo contó una vez por cada una de las tres clases.
+- **Super-lineal:** el punto entraba en `[^@…]+` y también en `\.`. Ante `a@....…@`, el motor probaba
+  cada posible corte entre los puntos antes de fallar. La auditoría ya había visto este costo en la
+  pasada 4 y lo había acotado con el tope de 254 caracteres; SonarCloud confirmó que la regex misma
+  debía cambiar.
+
+**Reparación** (`ecotech.py:32`):
+```python
+PATRON_CORREO = re.compile(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+")
+```
+- **Lineal:** el dominio se divide en tramos que no contienen puntos, separados por un punto. No hay
+  dos formas de repartir el texto, así que no hay retroceso.
+- **Sin repetidos:** la regex ya no excluye controles a mano, porque `Persona.__fijar_contacto()` pasa el
+  correo por `texto()` **antes**, y `texto()` rechaza todo lo no imprimible.
+- **Además es más estricta:** rechaza dominios con etiquetas vacías (`a@b..cl`).
+
+**Verificación.**
+- La autoverificación sigue rechazando el correo sin `@`, el correo con escape de terminal y el de 265
+  caracteres.
+- La sesión real del menú, con todos los correos de ejemplo, sale idéntica.
+
+#### S6353 · `[0-9]` en vez de `\d` · Mantenibilidad · 1 issue
+
+**Qué había.** `PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9][0-9]{8}")`. Se había escrito `[0-9]` a
+propósito en la pasada 4, porque en Python `\d` acepta dígitos de cualquier alfabeto.
+
+**Reparación.** `re.compile(r"(\+?56)?[2-9]\d{8}", re.ASCII)`. Con `re.ASCII`, `\d` significa
+exactamente `0-9`: se cumple la regla sin volver a aceptar dígitos árabes. La prueba «dígitos no ASCII»
+lo confirma.
+
+#### S4487 · Atributos privados que nunca se leen · Mantenibilidad, crítico · 2 issues
+
+| Atributo | Diagnóstico | Reparación |
+|---|---|---|
+| `Proyecto.__descripcion` (`ecotech.py:468`) | real: se validaba y guardaba, pero nada lo mostraba | `Proyecto.obtener_resumen()` ahora incluye `Descripción: …` |
+| `Usuario.__nombre_usuario` (`ecotech.py:541`) | lo declara el UML (`- nombreUsuario: str`) y se va a leer al guardar y autenticar usuarios, que es de la Unidad 3 | se mantiene, anotado con `# NOSONAR: se lee al guardar y autenticar, Unidad 3`. Quitarlo rompería la correspondencia con el diagrama |
+
+#### S3776 · Complejidad cognitiva · Mantenibilidad, crítico · 2 issues
+
+**Qué dice la regla.** Una función no debería pasar de 15 puntos de complejidad cognitiva, que suma
+por cada `if`, `elif`, `except`, bucle y anidamiento.
+
+**Qué había** en `main.py`:
+- **`ejecutar()` = 30:** las diez opciones del menú escritas completas dentro de un `if/elif`, con sus
+  `if` internos.
+- **`main()` = 26:** el bucle, la lectura de la opción, la cadena de 8 `except` y la pausa, todo junto.
+
+**Reparación.** Mismo comportamiento, repartido en funciones chicas:
+
+| Antes | Después |
+|---|---|
+| todo el código de cada opción dentro de `ejecutar()` | una función por opción: `crear_departamento`, `contratar_empleado`, `renombrar_departamento`, `editar_contacto`, `asignar_a_departamento`, `eliminar_departamento`, `eliminar_empleado` |
+| `ejecutar()` con 30 puntos | `ejecutar()` solo despacha: un `if/elif` que llama a esas funciones (~12). Sigue sin diccionario, como decidimos en `ANALISIS_IA.md` fila 20 |
+| `main()` con el `try` y los 8 `except` | `atender(opcion, solicitante)` tiene la **misma cadena de 8 `except` en el mismo orden** (`Cancelado` primero, `Exception` al final) |
+| la lectura de la opción y la pausa, cada una con su `except` dentro de `main()` | `pedir_opcion()` y `pausar()`, que devuelven si hay que salir |
+| `main()` con 26 puntos | `main()`: pedir, atender, pausar y limpiar, con la despedida en un solo lugar |
+
+**Verificación: el menú se comporta exactamente igual.**
+- **Sesión real:** las 25 acciones de `SALIDA_TERMINAL.md` sobre una base temporal dan una salida
+  idéntica, byte a byte.
+- **Casos límite:** se compararon el `main.py` nuevo y el commiteado en siete casos, con salida
+  idéntica en todos: fin de entrada al elegir opción, Ctrl+C al elegir opción, fin de entrada a mitad
+  de contratar, Ctrl+C a mitad de contratar, fin de entrada en la pausa, opción desconocida, y cancelar
+  con `x`.
+
+#### S1192 · Textos repetidos · Mantenibilidad, crítico · 5 issues
+
+| Dónde | Texto repetido | Reparación |
+|---|---|---|
+| `ecotech.py:660`, autoverificación | `"j@e.cl"` y `"Calle 1"`, 5 veces cada uno | variables locales `calle` y `correo` |
+| `main.py:124` | `"Desarrollo Sostenible"`, 3 veces | constantes `DESARROLLO` e `INVESTIGACION`, usadas en `PLANTILLA` y en `sembrar()` |
+| `main.py:189` y `:195` | `"   Id del departamento: "` y `"   Id del empleado: "`, 3 veces cada uno | constantes `PIDE_ID_DEPARTAMENTO` y `PIDE_ID_EMPLEADO` |
+
+De paso, el mensaje «Interrumpido. Hasta luego.» pasó a la constante `INTERRUMPIDO`, para que el
+refactor no creara una repetición nueva.
+
+#### S6659 · Usar `endswith` · Mantenibilidad · 1 issue
+
+`oct(os.stat(RUTA_ACTIVA).st_mode)[-3:] == "600"` pasó a
+`oct(os.stat(RUTA_ACTIVA).st_mode).endswith("600")`. Hace lo mismo y se lee mejor.
+
+#### S1135 · «TODO» · 3 issues, solo en los espejos · falso positivo
+
+SonarCloud buscaba la palabra «TODO» y la encontró en comentarios que **empezaban con «Todo»** en
+español («Todo es biblioteca estándar», «Todo el SQL usa `?`»). No eran tareas pendientes. Los
+comentarios se reescribieron («Solo biblioteca estándar», «Cada consulta SQL usa `?`»), y además esos
+archivos ya no están en el repositorio.
+
+#### Qué debería mostrar el próximo análisis
+
+| Issues | Estado esperado |
+|---|---|
+| S6389, S8786, S5869, S6353, S6659, S1192 y S3776 en `ecotech.py` y `main.py` | cerrados |
+| S4487 de `Proyecto.__descripcion` | cerrado |
+| S4487 de `Usuario.__nombre_usuario` | cerrado por `NOSONAR`, con el motivo escrito en la línea |
+| los 35 de `comentado/` y la duplicación | desaparecen, porque la carpeta ya no está en el repositorio |
+
+Si algún issue sigue abierto después del push, se revisa aquí mismo antes de marcarlo como aceptado
+en SonarCloud.
+
 ---
 
 ## 3. Decisiones declaradas
@@ -368,11 +557,12 @@ python3 main.py        # 1 crea ejemplos; probar 25 dígitos, salario 500000000,
 ls -l ecotech.db       # tiene que decir -rw-------
 ```
 
-La autoverificación incluye los casos de las cuatro pasadas: rechazos del dominio y de entradas,
+La autoverificación incluye los casos de las cinco pasadas: rechazos del dominio y de entradas,
 credenciales y formato del hash, siete escrituras sin permiso, CRUD, relación leída desde otra
 instancia, permisos del archivo y celdas del CSV. **Si alguien afloja una guarda, un `assert` se cae.**
 
-Los espejos comentados tienen que seguir siendo el mismo código:
+Los espejos comentados (carpeta local `comentado/`, fuera del repositorio desde el 15-sep-2026)
+tienen que seguir siendo el mismo código:
 ```bash
 diff <(sed 's/[[:space:]]*#.*$//; /^[[:space:]]*$/d' ecotech.py) \
      <(sed 's/[[:space:]]*#.*$//; /^[[:space:]]*$/d' comentado/ecotech_corto.py)
