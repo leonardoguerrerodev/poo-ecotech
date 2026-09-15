@@ -360,8 +360,9 @@ Ninguno es alcanzable hoy, porque `Usuario` no se persiste; se vuelven reales co
 
 ## 5. Cómo repetir la auditoría
 
+Desde la carpeta del proyecto:
+
 ```bash
-cd ecotech_new
 python3 ecotech.py     # autoverificación completa: termina en OK en ~1 s
 python3 main.py        # 1 crea ejemplos; probar 25 dígitos, salario 500000000, x para cancelar
 ls -l ecotech.db       # tiene que decir -rw-------

@@ -15,7 +15,7 @@ python3 main.py      # abre el menú (crea ecotech.db la primera vez)
 python3 ecotech.py   # corre la autoverificación: prueba todo sobre una base temporal
 ```
 
-En el menú, la opción **1** carga datos de ejemplo para probar sin escribir nada. Escribir **`x`**
+En el menú, la opción **1** carga datos de ejemplo para probar sin tener que teclear datos. Escribir **`x`**
 en cualquier dato cancela la acción sin guardar.
 
 ## Qué hay en el repositorio
@@ -25,7 +25,7 @@ en cualquier dato cancela la acción sin guardar.
 | `ecotech.py` | El sistema: validaciones, tablas de la base, las 8 clases del UML y sus operaciones CRUD |
 | `main.py` | El menú de terminal. No tiene ni una línea de SQL: solo llama a los métodos de las clases |
 | `comentado/` | El mismo código explicado. `*_corto.py` trae un comentario breve por pieza; `Comments_Explicacion_Larga/` trae la justificación completa de cada decisión |
-| `diagramas/` | El diagrama de clases (`modelo_u2.drawio` y su imagen) |
+| `diagramas/` | El diagrama de clases vigente (`modelo_u2.drawio` y sus imágenes clara y oscura) y el de la Unidad 1 (`modelo_final.drawio`) |
 | `docs/AUDITORIA.md` | La auditoría de seguridad del código, en cuatro pasadas: lo que encontramos y cómo lo corregimos |
 
 ## Cómo está construido
@@ -79,9 +79,10 @@ y la transacción confirmada o deshecha automáticamente.
 Es el foco de la asignatura, así que la resumimos punto por punto:
 
 - **Inyección SQL:** todas las consultas usan parámetros `?`. El dato nunca se pega dentro del SQL.
-- **Contraseñas:** se guardan como hash `scrypt` con sal aleatoria, nunca en texto plano, y se
+- **Contraseñas:** se convierten en hash `scrypt` con sal aleatoria, nunca quedan en texto plano, y se
   comparan en tiempo constante (`secrets.compare_digest`). El hash guarda su costo, así que se
-  puede subir más adelante sin romper las claves existentes.
+  puede subir más adelante sin romper las claves existentes. La tabla `usuario` se escribe en la
+  Unidad 3, junto con el inicio de sesión.
 - **Permisos por rol:** tres roles (`ADMIN_RRHH`, `GERENTE`, `EMPLEADO`). Las nueve operaciones que
   escriben o muestran datos sensibles, como ver un salario, piden quién lo solicita y pasan por
   `autorizar()`.
@@ -120,7 +121,7 @@ coherencia con el diagrama. Algunos ejemplos:
 - se corrigió una conexión que quedaba abierta y un `SELECT *` que arrastraba el salario;
 - se recortó un menú de 14 opciones con login a 10 opciones, porque el login es de la Unidad 3.
 
-El análisis completo va en la entrega de la evaluación.
+El análisis completo lo presentamos en la defensa oral.
 
 ## Pendiente para la Unidad 3
 

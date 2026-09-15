@@ -1,7 +1,7 @@
 """EcoTech Solutions — sistema de gestión de empleados.
 
-Implementación en Python del modelo UML validado en la Unidad 1
-(`diagramas/modelo_u2.drawio`). Este archivo contiene, en este orden:
+Implementación en Python del modelo UML validado en la Unidad 1 y revisado en la
+Unidad 2 (`diagramas/modelo_u2.drawio`). Este archivo contiene, en este orden:
 
     1. Validaciones y autorización compartidas
     2. Esquema y conexión a la base de datos (SQLite, librería estándar)
@@ -9,7 +9,7 @@ Implementación en Python del modelo UML validado en la Unidad 1
     4. Autoverificación
 
 Uso:
-    python3 ecotech.py   → autoverificación sobre una base temporal hasta implementar la unidad 3
+    python3 ecotech.py   → autoverificación sobre una base temporal (el login llega en la Unidad 3)
     python3 main.py      → menú de la aplicación
 """
 

@@ -1,7 +1,7 @@
 """EcoTech Solutions — sistema de gestión de empleados.
 
-Implementación en Python del modelo UML validado en la Unidad 1
-(`diagramas/modelo_u2.drawio`). Este archivo contiene, en este orden:
+Implementación en Python del modelo UML validado en la Unidad 1 y revisado en la
+Unidad 2 (`diagramas/modelo_u2.drawio`). Este archivo contiene, en este orden:
 
     1. Validaciones y autorización compartidas
     2. Esquema y conexión a la base de datos (SQLite, librería estándar)
@@ -9,7 +9,7 @@ Implementación en Python del modelo UML validado en la Unidad 1
     4. Autoverificación
 
 Uso:
-    python3 ecotech.py   → autoverificación sobre una base temporal hasta implementar la unidad 3
+    python3 ecotech.py   → autoverificación sobre una base temporal (el login llega en la Unidad 3)
     python3 main.py      → menú de la aplicación
 """
 
@@ -101,8 +101,9 @@ def sin_formula(valor: str) -> str:
 
 
 # Único punto de autorización; estaba duplicado y la auditoría lo llevó a
-# siete métodos. Lanza en vez de devolver un booleano para que nadie olvide
-# mirar el resultado, y lo hace antes de tocar la base.
+# las nueve operaciones protegidas. Lanza en vez de devolver un booleano para
+# que nadie olvide mirar el resultado, y lo hace antes de tocar la base. Es
+# función de módulo y no método de una clase, porque la usan tres clases.
 def autorizar(solicitante: "Usuario", modulo: str) -> None:
     if not solicitante.tiene_permiso(modulo):
         raise PermissionError(f"No autorizado para operar sobre {modulo}")
@@ -134,8 +135,8 @@ def exigir_guardado(entidad: "EntidadReportable") -> int:
 # La ruta se ancla a la carpeta de ESTE archivo y no al directorio desde donde
 # se lanza el programa. Con "ecotech.db" a secas, correr
 # `python3 ecotech_new/main.py` desde la carpeta de arriba abría otra base,
-# vacía, y parecía que los datos se habían perdido. Consecuencia en el
-# espejo: este archivo, si se ejecuta, usa `comentado/ecotech.db`.
+# vacía, y parecía que los datos se habían perdido. Este espejo es para leer,
+# no para ejecutar: el programa se corre desde la raíz.
 
 RUTA_ACTIVA = str(Path(__file__).with_name("ecotech.db"))
 
