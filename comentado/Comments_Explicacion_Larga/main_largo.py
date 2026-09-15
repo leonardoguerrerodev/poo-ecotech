@@ -41,8 +41,10 @@ MENU = """
     4. Departamentos              9. Departamento
     5. Empleados                 10. Empleado
 
-   m. menú   ·   x. cancela el dato que se pide   ·   0. salir
+   Escriba "x" para cancelar la acción en curso   ·   0. salir
 =================================================================="""
+# "La acción en curso" y no "el dato": la x descarta la acción entera. Sin
+# opción "m": el menú ya reaparece solo después de cada acción.
 
 # Techo de todo entero tecleado, salido de la auditoría: SQLite guarda enteros
 # de 64 bits y uno mayor lanza OverflowError al convertirlo. Un id de 25
@@ -63,6 +65,17 @@ MAXIMO_ENTERO = 10**9
 # Las opciones que piden algo por teclado, y por lo tanto las únicas donde
 # tiene sentido avisar que x cancela. La 1, la 4 y la 5 no preguntan nada.
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
+
+
+# Pantalla limpia tras cada acción, idea de un compañero de grupo.
+# Secuencia ANSI y no `os.system("clear")`: `os.system` abre una shell y busca
+# `clear` en el PATH, y un `clear` falso ahí se ejecutaría. `\033[2J` borra y
+# `\033[H` sube el cursor: es texto, no un programa.
+# Límite: la consola antigua de Windows muestra los códigos en vez de borrar.
+def limpiar_y_mostrar_menu() -> None:
+    """Limpia la terminal y vuelve a dibujar el menú principal."""
+    print("\033[2J\033[H", end="")
+    print(MENU)
 
 
 # --- Entrada validada del usuario ------------------------------------
@@ -114,7 +127,9 @@ def pedir_entero(mensaje: str) -> int:
         valor = leer(mensaje)
         if not valor.isdecimal():
             print("   ! Escriba un número entero, sin puntos ni letras.")
-        elif int(valor) > MAXIMO_ENTERO:
+        # El largo se mira antes de `int()`: con más de 4300 dígitos, `int()`
+        # lanza un error en inglés. 20 y no 10 para aceptar ceros a la izquierda.
+        elif len(valor) > 20 or int(valor) > MAXIMO_ENTERO:
             print(f"   ! Demasiado grande. El máximo es {MAXIMO_ENTERO}.")
         else:
             return int(valor)
@@ -345,7 +360,7 @@ def main() -> None:
     # constructor rechazaría la clave una vez cada tantos arranques.
     solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
                           Rol.ADMIN_RRHH)
-    print(MENU)
+    limpiar_y_mostrar_menu()
 
     # EL BUCLE QUE NO SE CAE: el try va DENTRO del while. Afuera, la primera
     # excepción termina el programa; adentro, se imprime el motivo y la
@@ -353,13 +368,10 @@ def main() -> None:
     # sistema se interrumpa ante errores de ejecución".
     while True:
         try:
-            opcion = input("\n   Opción (m = menú): ").strip().lower()
+            opcion = input("\n   Opción: ").strip().lower()
             if opcion == "0":
                 print("   Hasta luego.")
                 return
-            if opcion == "m":
-                print(MENU)
-                continue
             ejecutar(opcion, solicitante)
 
         # Los except van de más específico a más general porque Python entra
@@ -420,6 +432,17 @@ def main() -> None:
         # `Exception` no cubre KeyboardInterrupt ni SystemExit.
         except Exception as error:
             print(f"   ! Error inesperado ({type(error).__name__}): {error}")
+
+        # PAUSA ANTES DE LIMPIAR, para leer el resultado. Va fuera del try de
+        # arriba para correr también tras un error o una cancelación. Lo
+        # tecleado se descarta, por eso no pasa por `leer()`. Su propio except
+        # cubre un Ctrl-C justo en la pausa, que el try del bucle no alcanza.
+        try:
+            input("\n   Presione Enter para continuar...")
+        except (KeyboardInterrupt, EOFError):
+            print("\n   Interrumpido. Hasta luego.")
+            return
+        limpiar_y_mostrar_menu()
 
 
 # Permite importar este módulo sin que arranque el menú.

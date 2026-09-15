@@ -13,6 +13,8 @@ Uso:
     python3 main.py      → menú de la aplicación
 """
 
+
+# Un solo archivo (el docente pidió no modularizar) y solo biblioteca estándar.
 import csv                                  # escribe el informe en CSV sin romper comas ni comillas
 import hashlib                              # scrypt: convierte la clave en un hash que no se revierte
 import os                                   # permisos 0600 de la base y rutas de la autoverificación
@@ -29,16 +31,22 @@ from pathlib import Path                    # rutas: ubica la base y bloquea esc
 # 1. VALIDACIONES Y AUTORIZACIÓN COMPARTIDAS
 # =====================================================================
 
+# Correo permisivo a propósito, pero sin caracteres de control.
+# Teléfono chileno con [0-9]: \d acepta dígitos de otros alfabetos.
 PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
 PATRON_USUARIO = re.compile(r"[a-z0-9._-]{3,20}")
 PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9][0-9]{8}")
 SEPARADORES = re.compile(r"[\s()\-.]")
 
+# Techo de negocio: un número gigante tumbaba SQLite. Repetido en el CHECK.
 SALARIO_MAXIMO = 100_000_000
 
+# Con estos caracteres una planilla lee la celda como fórmula.
 INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
+# Puerta única de todo texto: no vacío, con tope y solo imprimible.
+# Lo no imprimible (escapes, marcas invisibles) desarma la terminal al listar.
 def texto(valor: str, campo: str, maximo: int = 120) -> str:
     limpio = valor.strip()
     if not limpio:
@@ -50,19 +58,24 @@ def texto(valor: str, campo: str, maximo: int = 120) -> str:
     return limpio
 
 
+# El mismo número escrito distinto se guarda igual.
 def canonico(telefono: str) -> str:
     return SEPARADORES.sub("", telefono)[-9:]
 
 
+# Apóstrofo delante: la planilla no ejecuta la celda.
+# Se aplica al exportar, no al guardar: el dato queda limpio.
 def sin_formula(valor: str) -> str:
     return f"'{valor}" if valor.startswith(INICIOS_DE_FORMULA) else valor
 
 
+# Único control de permisos. Lanza error: nadie olvida revisarlo.
 def autorizar(solicitante: "Usuario", modulo: str) -> None:
     if not solicitante.tiene_permiso(modulo):
         raise PermissionError(f"No autorizado para operar sobre {modulo}")
 
 
+# Sin id no hay fila: relacionar un objeto sin guardar no haría nada.
 def exigir_guardado(entidad: "EntidadReportable") -> int:
     if entidad.obtener_id() is None:
         raise ValueError(f"{type(entidad).__name__} sin guardar: guárdelo "
@@ -74,8 +87,13 @@ def exigir_guardado(entidad: "EntidadReportable") -> int:
 # 2. BASE DE DATOS
 # =====================================================================
 
+# SQLite: un archivo, sin servidor. La ruta sale de la carpeta de este
+# archivo, no de donde se lanza el programa.
 RUTA_ACTIVA = str(Path(__file__).with_name("ecotech.db"))
 
+
+# Seis tablas en un bloque porque las claves foráneas se cruzan.
+# SET NULL = agregación, CASCADE = composición. Las reglas también en la tabla.
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS departamento (
     id         INTEGER PRIMARY KEY,
@@ -130,11 +148,14 @@ CREATE TABLE IF NOT EXISTS usuario (
 """
 
 
+# Cambia de base: la autoverificación la usa para no tocar la real.
 def usar_base(ruta: str) -> None:
     global RUTA_ACTIVA
     RUTA_ACTIVA = ruta
 
 
+# Una conexión por operación: claves foráneas activas, filas por nombre,
+# COMMIT o ROLLBACK automático, y siempre se cierra.
 @contextmanager
 def conectar():
     con = sqlite3.connect(RUTA_ACTIVA)
@@ -147,6 +168,7 @@ def conectar():
         con.close()
 
 
+# Deja la base en 0600: adentro hay sueldos. Si el chmod falla, avisa y sigue.
 def crear_tablas() -> None:
     with conectar() as con:
         con.executescript(ESQUEMA)
@@ -161,12 +183,15 @@ def crear_tablas() -> None:
 # =====================================================================
 
 
+# UML a Python: -privado = __atributo, #protegido = _atributo.
+# Enum: un rol mal escrito falla al crearse, no al revisar permisos.
 class Rol(Enum):
     ADMIN_RRHH = "ADMIN_RRHH"
     GERENTE = "GERENTE"
     EMPLEADO = "EMPLEADO"
 
 
+# Abstracción común: Informe depende de ella y no de cuatro clases.
 class EntidadReportable(ABC):
     """Abstracta. No tiene tabla: aporta el id y el contrato del resumen."""
 
@@ -181,6 +206,7 @@ class EntidadReportable(ABC):
         ...
 
 
+# Superclase abstracta: un empleado es una persona.
 class Persona(EntidadReportable):
     """Abstracta. No tiene tabla: sus campos viven en la tabla de la hija."""
 
@@ -189,8 +215,7 @@ class Persona(EntidadReportable):
         super().__init__(id)
         self.__nombre = texto(nombre, "El nombre")
         self.__direccion = texto(direccion, "La dirección", 200)
-        # Privado a propósito: el constructor no debe despachar al método
-        # sobrescrito de la hija, que escribe en la base.
+        # Privado: el público de la hija escribe en la base y se dispararía al leer.
         self.__fijar_contacto(telefono, correo)
 
     def obtener_nombre(self) -> str:
@@ -199,6 +224,7 @@ class Persona(EntidadReportable):
     def actualizar_contacto(self, telefono: str, correo: str) -> None:
         self.__fijar_contacto(telefono, correo)
 
+    # El correo pasa por texto(): tope de 254 y solo imprimible.
     def __fijar_contacto(self, telefono: str, correo: str) -> None:
         correo = texto(correo, "El correo", 254)
         if not self._validar_correo(correo):
@@ -208,6 +234,7 @@ class Persona(EntidadReportable):
         self.__telefono = canonico(telefono)
         self.__correo = correo
 
+    # Puerta protegida para que la hija guarde los campos privados.
     def _datos_contacto(self) -> tuple[str, str, str]:
         return (self.__direccion, self.__telefono, self.__correo)
 
@@ -218,6 +245,7 @@ class Persona(EntidadReportable):
     def _validar_correo(self, correo: str) -> bool:
         return bool(PATRON_CORREO.fullmatch(correo))
 
+    # fullmatch: el número completo, no un pedazo.
     def _validar_telefono(self, telefono: str) -> bool:
         return bool(PATRON_TELEFONO.fullmatch(SEPARADORES.sub("", telefono)))
 
@@ -225,9 +253,11 @@ class Persona(EntidadReportable):
 class Empleado(Persona):
     """tabla: empleado"""
 
+    # Columnas con nombre, nunca SELECT *.
     COLUMNAS = ("id, nombre, direccion, telefono, correo,"
                 " fecha_inicio_contrato, salario")
 
+    # Valida antes de construir: no quedan objetos a medias.
     def __init__(self, nombre: str, direccion: str, telefono: str, correo: str,
                  fecha_inicio_contrato: date, salario: int,
                  id: int | None = None):
@@ -241,12 +271,15 @@ class Empleado(Persona):
         self.__fecha_inicio_contrato = fecha_inicio_contrato
         self.__salario = salario
         self.__registros: list["RegistroTiempo"] = []
+        # Proyecto no se guarda en esta unidad: esa relación vive en memoria.
         self._proyectos: list["Proyecto"] = []
 
+    # El sueldo pide permiso en la clase, no en la pantalla.
     def obtener_salario(self, solicitante: "Usuario") -> int:
         autorizar(solicitante, "empleados")
         return self.__salario
 
+    # Composición: el empleado crea sus registros y valida fechas.
     def registrar_tiempo(self, proyecto: "Proyecto", fecha: date, horas: float,
                          descripcion: str) -> "RegistroTiempo":
         if proyecto not in self._proyectos:
@@ -260,12 +293,15 @@ class Empleado(Persona):
         proyecto._registros.append(registro)
         return registro
 
+    # Sin salario: un informe no filtra sueldos.
     def obtener_resumen(self) -> str:
         return (f"{super().obtener_resumen()} | "
                 f"contrato: {self.__fecha_inicio_contrato.isoformat()}")
 
     # --- Persistencia (CRUD) ---------------------------------------
 
+    # Todo el SQL usa ?: el dato nunca se mezcla con la consulta.
+    # Un segundo guardar se rechaza: duplicaría la fila.
     def guardar(self, solicitante: "Usuario") -> int:
         """C — INSERT. El id lo asigna SQLite, no el objeto."""
         if self._id is not None:
@@ -281,6 +317,7 @@ class Empleado(Persona):
         self._id = cur.lastrowid
         return self._id
 
+    # Devuelve objetos, no filas.
     @classmethod
     def listar(cls) -> list["Empleado"]:
         """R — todos, ordenados por nombre."""
@@ -289,6 +326,7 @@ class Empleado(Persona):
                 f"SELECT {cls.COLUMNAS} FROM empleado ORDER BY nombre").fetchall()
         return [cls._desde_fila(fila) for fila in filas]
 
+    # None si no existe: no encontrar no es un error.
     @classmethod
     def buscar(cls, id: int) -> "Empleado | None":
         """R — uno por id."""
@@ -298,6 +336,7 @@ class Empleado(Persona):
                 (id,)).fetchone()
         return None if fila is None else cls._desde_fila(fila)
 
+    # Valida con Persona y recién después escribe.
     def actualizar_contacto(self, telefono: str, correo: str) -> None:
         """U — valida heredando de Persona y recién entonces escribe."""
         super().actualizar_contacto(telefono, correo)
@@ -309,6 +348,7 @@ class Empleado(Persona):
                 "UPDATE empleado SET telefono = ?, correo = ? WHERE id = ?",
                 (telefono_guardado, correo_guardado, self._id))
 
+    # Pide permiso. rowcount dice si de verdad borró algo.
     def eliminar(self, solicitante: "Usuario") -> bool:
         """D — arrastra los registros de tiempo por ON DELETE CASCADE."""
         autorizar(solicitante, "empleados")
@@ -316,6 +356,7 @@ class Empleado(Persona):
             cur = con.execute("DELETE FROM empleado WHERE id = ?", (self._id,))
         return cur.rowcount == 1
 
+    # La fila pasa por el constructor: un dato malo se detecta al leer.
     @classmethod
     def _desde_fila(cls, fila: sqlite3.Row) -> "Empleado":
         return cls(fila["nombre"], fila["direccion"], fila["telefono"],
@@ -327,6 +368,7 @@ class Empleado(Persona):
 class Departamento(EntidadReportable):
     """tabla: departamento"""
 
+    # La relación con empleados vive solo en la base, sin copias en memoria.
     def __init__(self, nombre: str, id: int | None = None):
         super().__init__(id)
         self.__nombre = texto(nombre, "El nombre del departamento")
@@ -334,6 +376,8 @@ class Departamento(EntidadReportable):
     def obtener_nombre(self) -> str:
         return self.__nombre
 
+    # Los métodos del UML escriben la base, con permiso y en una transacción.
+    # IS NOT y no <>: comparado con NULL, <> nunca es verdadero.
     def agregar_empleado(self, empleado: "Empleado",
                          solicitante: "Usuario") -> bool:
         """U — la clave foránea de la agregación."""
@@ -351,6 +395,7 @@ class Departamento(EntidadReportable):
                 (id_departamento, id_empleado, id_departamento))
         return cur.rowcount == 1
 
+    # Solo suelta a uno propio; si era gerente, el cargo queda vacante.
     def quitar_empleado(self, empleado: "Empleado",
                         solicitante: "Usuario") -> bool:
         """U — la clave foránea vuelve a NULL."""
@@ -368,6 +413,7 @@ class Departamento(EntidadReportable):
                 (id_departamento, id_empleado))
         return cur.rowcount == 1
 
+    # El gerente debe ser del departamento: se revisa en la misma sentencia.
     def asignar_gerente(self, empleado: "Empleado",
                         solicitante: "Usuario") -> None:
         """U — gerente_id, solo si el empleado pertenece al departamento."""
@@ -382,6 +428,7 @@ class Departamento(EntidadReportable):
         if cur.rowcount != 1:
             raise ValueError("El gerente debe pertenecer al departamento")
 
+    # Objetos nuevos desde la base: tocar la lista no cambia la relación.
     def listar_empleados(self) -> list["Empleado"]:
         """R — los empleados cuya clave foránea apunta aquí."""
         with conectar() as con:
@@ -391,6 +438,7 @@ class Departamento(EntidadReportable):
                 (self._id,)).fetchall()
         return [Empleado._desde_fila(fila) for fila in filas]
 
+    # Gerente y conteo desde la base: informe y pantalla coinciden.
     def obtener_resumen(self) -> str:
         with conectar() as con:
             fila = con.execute(
@@ -403,6 +451,7 @@ class Departamento(EntidadReportable):
 
     # --- Persistencia (CRUD) ---------------------------------------
 
+    # Crear también pide permiso: importa qué se escribe, no qué se lee.
     def guardar(self, solicitante: "Usuario") -> int:
         """C — INSERT."""
         autorizar(solicitante, "departamentos")
@@ -431,6 +480,7 @@ class Departamento(EntidadReportable):
                 (id,)).fetchone()
         return None if fila is None else cls(fila["nombre"], id=fila["id"])
 
+    # Misma validación que al crear; el objeto cambia solo si la base aceptó.
     def renombrar(self, nombre: str, solicitante: "Usuario") -> bool:
         """U — valida antes de escribir y sincroniza el objeto en memoria."""
         autorizar(solicitante, "departamentos")
@@ -442,6 +492,7 @@ class Departamento(EntidadReportable):
             self.__nombre = nuevo
         return cur.rowcount == 1
 
+    # Agregación: los empleados siguen, con departamento en NULL.
     def eliminar(self, solicitante: "Usuario") -> bool:
         """D — los empleados sobreviven: la agregación es ON DELETE SET NULL."""
         autorizar(solicitante, "departamentos")
@@ -450,6 +501,7 @@ class Departamento(EntidadReportable):
                               (self._id,))
         return cur.rowcount == 1
 
+    # COUNT(*) trae un número, no la tabla entera.
     def contar_empleados(self) -> int:
         with conectar() as con:
             fila = con.execute(
@@ -458,6 +510,7 @@ class Departamento(EntidadReportable):
         return fila["total"]
 
 
+# Sin persistir en esta unidad: vive en memoria.
 class Proyecto(EntidadReportable):
     """tabla: proyecto"""
 
@@ -470,6 +523,7 @@ class Proyecto(EntidadReportable):
         self._registros: list["RegistroTiempo"] = []
         self.__empleados: list["Empleado"] = []
 
+    # Muchos a muchos: se actualizan los dos lados.
     def asignar_empleado(self, empleado: "Empleado") -> bool:
         if empleado in self.__empleados:
             return False
@@ -484,6 +538,7 @@ class Proyecto(EntidadReportable):
         empleado._proyectos.remove(self)
         return True
 
+    # 0.0 inicial: siempre devuelve float.
     def horas_consumidas(self) -> float:
         return sum((r.obtener_horas() for r in self._registros), 0.0)
 
@@ -497,6 +552,7 @@ class Proyecto(EntidadReportable):
 class RegistroTiempo(EntidadReportable):
     """tabla: registro_tiempo"""
 
+    # Valida antes de existir.
     def __init__(self, fecha: date, horas: float, descripcion: str,
                  id: int | None = None):
         if not self._validar_horas(horas):
@@ -516,24 +572,30 @@ class RegistroTiempo(EntidadReportable):
                 f"Horas: {self.__horas:.2f} | "
                 f"Descripción: {self.__descripcion}")
 
+    # Más de 0 y hasta 24, igual que el CHECK.
     def _validar_horas(self, horas: float) -> bool:
         return 0 < horas <= 24
 
+    # No se registran horas del futuro.
     def _validar_fecha(self, fecha: date) -> bool:
         return fecha <= date.today()
 
 
+# Credencial: no se reporta ni se fusiona con Empleado.
 class Usuario:
     """tabla: usuario — credencial de acceso, no es entidad reportable."""
 
+    # Permisos por rol en una tabla, no en ifs.
     _PERMISOS = {
         Rol.ADMIN_RRHH: {"empleados", "departamentos", "proyectos", "informes"},
         Rol.GERENTE: {"departamentos", "proyectos", "informes"},
         Rol.EMPLEADO: {"proyectos"},
     }
 
+    # Guarda solo el hash: la clave en claro no queda en ningún lado.
     def __init__(self, nombre_usuario: str, clave: str, rol: Rol,
                  id: int | None = None, hash_clave: str | None = None):
+        # Minúsculas: Ana y ana son la misma cuenta.
         nombre_usuario = nombre_usuario.strip().lower()
         if not PATRON_USUARIO.fullmatch(nombre_usuario):
             raise ValueError(f"Nombre de usuario inválido: {nombre_usuario!r}")
@@ -547,8 +609,10 @@ class Usuario:
                 raise ValueError("La clave no cumple la política de seguridad")
             self.__hash_clave = self._hashear(clave, secrets.token_bytes(16))
 
+    # Costo de scrypt: lento a propósito para frenar ataques.
     COSTO = (2**16, 8, 1)
 
+    # scrypt con sal aleatoria. El hash guarda su costo para poder subirlo.
     @classmethod
     def _hashear(cls, clave: str, sal: bytes, costo=None) -> str:
         n, r, p = costo or cls.COSTO
@@ -556,6 +620,7 @@ class Usuario:
                            maxmem=256 * 1024 * 1024)
         return f"scrypt${n}${r}${p}${sal.hex()}${h.hex()}"
 
+    # compare_digest: el tiempo no revela cuánto se acertó.
     def verificar_clave(self, clave: str) -> bool:
         partes = self.__hash_clave.split("$")
         if len(partes) != 6 or partes[0] != "scrypt":
@@ -564,6 +629,7 @@ class Usuario:
         calculado = self._hashear(clave, bytes.fromhex(partes[4]), (n, r, p))
         return secrets.compare_digest(calculado.split("$")[5], partes[5])
 
+    # Pide la clave actual y usa sal nueva.
     def cambiar_clave(self, actual: str, nueva: str) -> bool:
         if not self._validar_clave(nueva):
             raise ValueError("La clave no cumple la política de seguridad")
@@ -572,6 +638,7 @@ class Usuario:
         self.__hash_clave = self._hashear(nueva, secrets.token_bytes(16))
         return True
 
+    # Mínimo 12 caracteres y 3 de 4 tipos.
     def _validar_clave(self, clave: str) -> bool:
         if len(clave) < 12:
             return False
@@ -581,10 +648,12 @@ class Usuario:
                     any(not c.isalnum() for c in clave))
         return sum(familias) >= 3
 
+    # Rol desconocido = sin permisos.
     def tiene_permiso(self, modulo: str) -> bool:
         return modulo in self._PERMISOS.get(self.__rol, set())
 
 
+# Documento derivado: sin tabla.
 class Informe:
     """Sin tabla: se genera al vuelo desde las entidades reportables."""
 
@@ -593,12 +662,14 @@ class Informe:
         self.__fecha_generacion = date.today()
         self.__contenido = contenido
 
+    # Polimorfismo: un método sirve para cualquier entidad reportable.
     @staticmethod
     def generar(titulo: str, entidades: list[EntidadReportable],
                 solicitante: Usuario) -> "Informe":
         autorizar(solicitante, "informes")
         return Informe(titulo, [e.obtener_resumen() for e in entidades])
 
+    # resolve() antes de comparar: bloquea rutas con .. fuera de la carpeta.
     def exportar(self, ruta: str, formato: str = "csv") -> bool:
         if formato not in ("csv", "txt"):
             raise ValueError(f"Formato no soportado: {formato!r}")
@@ -609,6 +680,7 @@ class Informe:
         destino = destino.resolve()
         if not destino.is_relative_to(base_dir):
             raise ValueError(f"La ruta sale de la carpeta de trabajo: {ruta!r}")
+        # csv escapa comas y sin_formula frena fórmulas. Falla de disco: False.
         try:
             if formato == "csv":
                 with open(destino, "w", newline="", encoding="utf-8") as archivo:
@@ -636,6 +708,7 @@ class Informe:
 # =====================================================================
 
 
+# Verdadero si la acción falla como debe.
 def _rechaza(accion, excepcion=ValueError) -> bool:
     """Verdadero si la acción falla como se espera. La red del refactor."""
     try:
@@ -645,6 +718,7 @@ def _rechaza(accion, excepcion=ValueError) -> bool:
     return False
 
 
+# Un assert por regla: si alguien afloja una, se cae aquí.
 def _autoverificar() -> None:
     hoy = date.today()
     contrato = date(2024, 3, 1)
@@ -690,7 +764,7 @@ def _autoverificar() -> None:
     sin_formato = Usuario("ana", "", Rol.EMPLEADO, hash_clave="basura")
     assert _rechaza(lambda: sin_formato.verificar_clave("x")), "hash mal formado"
 
-    # --- CRUD sobre las dos clases relacionadas
+    # --- CRUD sobre las dos clases relacionadas, en orden
     crear_tablas()
     assert oct(os.stat(RUTA_ACTIVA).st_mode)[-3:] == "600", "base legible por otros"
 
@@ -756,7 +830,7 @@ def _autoverificar() -> None:
         "gerente borrado que sigue en el cargo"
     assert not ana.eliminar(admin), "borrar dos veces no puede devolver éxito"
 
-    # --- El informe depende de la abstracción, no de cada clase concreta
+    # --- El informe depende de la abstracción, no de las clases concretas
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
                              admin).obtener_texto()
     assert "Legal" in salida and "Juanita" in salida
@@ -771,6 +845,7 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: informe.exportar("../fuga.csv")), "path traversal"
 
 
+# Base y carpeta temporales: no toca ecotech.db y se borran solas.
 if __name__ == "__main__":
     import tempfile
 

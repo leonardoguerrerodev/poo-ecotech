@@ -1,145 +1,157 @@
 # EcoTech Solutions — gestión de empleados
 
-Sistema de gestión de personal en Python, implementado sobre el modelo de clases UML
-de la asignatura *Programación Orientada a Objeto Seguro*. Persistencia en SQLite con
-la librería estándar: **sin dependencias externas**.
+Programa de terminal en Python para gestionar empleados y departamentos de la empresa EcoTech.
+Lleva a código el diagrama de clases UML de la asignatura *Programación Orientada a Objeto Seguro*
+y guarda los datos en una base SQLite.
 
-## Uso
+**Todo es biblioteca estándar de Python: no hay nada que instalar.**
+
+## Cómo ejecutarlo
+
+Requiere **Python 3.11 o superior**.
 
 ```bash
-python3 ecotech.py   # autoverificación sobre una base temporal
-python3 main.py      # menú de la aplicación (crea ./ecotech.db en modo 0600)
+python3 main.py      # abre el menú (crea ecotech.db la primera vez)
+python3 ecotech.py   # corre la autoverificación: prueba todo sobre una base temporal
 ```
 
-Requiere Python 3.10 o superior (usa `int | None`).
+En el menú, la opción **1** carga datos de ejemplo para probar sin escribir nada. Escribir **`x`**
+en cualquier dato cancela la acción sin guardar.
 
-## Estructura
+## Qué hay en el repositorio
 
-| Ruta | Contenido |
+| Archivo o carpeta | Qué es |
 |---|---|
-| `ecotech.py` | Dominio completo: validaciones, esquema SQL, las 8 clases del UML y su CRUD |
-| `main.py` | Interfaz de terminal. No contiene una sola sentencia SQL |
-| `comentado/` | Espejo de ambos archivos con comentarios que justifican cada decisión |
-| `diagramas/` | Modelo de clases en formato drawio |
-| `docs/` | Análisis del código generado con IA, las dos auditorías de seguridad, el guion de defensa y la sesión de terminal |
+| `ecotech.py` | El sistema: validaciones, tablas de la base, las 8 clases del UML y sus operaciones CRUD |
+| `main.py` | El menú de terminal. No tiene ni una línea de SQL: solo llama a los métodos de las clases |
+| `comentado/` | El mismo código explicado. `*_corto.py` trae un comentario breve por pieza; `Comments_Explicacion_Larga/` trae la justificación completa de cada decisión |
+| `diagramas/` | El diagrama de clases (`modelo_u2.drawio` y su imagen) |
+| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en cuatro pasadas: lo que encontramos y cómo lo corregimos |
 
-El espejo de `comentado/` es el mismo código con la justificación encima. Que siga siendo el mismo
-se comprueba así:
+## Cómo está construido
 
-```bash
-diff <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' ecotech.py) \
-     <(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' comentado/ecotech.py)
-```
+### Del diagrama al código
 
-### `ecotech.py`
+Cada caja del UML es una clase en `ecotech.py`, con los mismos atributos y en el mismo orden. La
+visibilidad se tradujo literal: privado (`-`) es `__atributo`, protegido (`#`) es `_atributo`.
 
-Cuatro secciones en orden:
-
-1. **Validaciones y autorización.** Expresiones regulares de correo, usuario y teléfono;
-   `texto()` normaliza y acota cadenas y rechaza caracteres de control; `canonico()` reduce un
-   teléfono a sus 9 dígitos; `sin_formula()` neutraliza las celdas que una planilla evaluaría;
-   `autorizar()` lanza `PermissionError` si el rol no cubre el módulo.
-2. **Base de datos.** `ESQUEMA` define las seis tablas. `conectar()` es un context manager
-   que abre la conexión, activa `PRAGMA foreign_keys` y confirma o revierte la transacción.
-   `crear_tablas()` es idempotente y deja el archivo en modo `0600`. La base vive junto a
-   `ecotech.py`, lo lance quien lo lance y desde donde sea; `usar_base()` redirige la ruta, que es
-   lo que permite testear contra una base temporal.
-3. **Clases del modelo.** Las ocho del diagrama más el enum `Rol`, declaradas en orden de
-   dependencia y con su CRUD adentro. Detalle en la tabla de abajo.
-4. **Autoverificación.** `_autoverificar()` recorre con `assert` el dominio, los permisos, el
-   ciclo CRUD entero, los permisos del archivo de la base y la exportación a CSV. Es la red que
-   protege cualquier refactor.
-
-### Clases
-
-| Clase | Tabla | Rol |
+| Clase | Qué representa | Se guarda en la base |
 |---|---|---|
-| `EntidadReportable` | — | Abstracta. Aporta el id y obliga a implementar `obtener_resumen()` |
-| `Persona` | — | Abstracta. Nombre, dirección y contacto validado |
-| `Empleado` | `empleado` | Contrato y salario. CRUD completo |
-| `Departamento` | `departamento` | Agrupa empleados y designa gerente. CRUD completo, y la relación persistida |
-| `Proyecto` | `proyecto` | Asignación de empleados y horas consumidas. En memoria en esta unidad |
-| `RegistroTiempo` | `registro_tiempo` | Horas imputadas a un proyecto en una fecha. En memoria en esta unidad |
-| `Usuario` | `usuario` | Credencial y rol. No es entidad reportable. Se persiste en la Unidad 3 |
-| `Informe` | — | Se genera al vuelo a partir de cualquier lista de `EntidadReportable` |
+| `EntidadReportable` | Abstracta. Todo lo que puede aparecer en un informe | — |
+| `Persona` | Abstracta. Nombre, dirección y contacto validados | — |
+| `Empleado` | Hereda de `Persona`. Contrato y salario | ✅ tabla `empleado` |
+| `Departamento` | Agrupa empleados y tiene gerente | ✅ tabla `departamento` |
+| `Proyecto` | Empleados asignados y horas consumidas | en memoria (tabla lista) |
+| `RegistroTiempo` | Horas trabajadas en un proyecto | en memoria (tabla lista) |
+| `Usuario` | Credencial y rol | Unidad 3 (tabla lista) |
+| `Informe` | Resumen generado a partir de cualquier entidad | — (se calcula al vuelo) |
 
-El CRUD vive como métodos de cada clase: `guardar()` inserta, `listar()` y `buscar()` leen
-como métodos de clase, los métodos de actualización escriben solo tras validar, y `eliminar()`
-borra. Todas las consultas van parametrizadas con `?`.
+### Las relaciones
 
-### Relaciones
+| En el UML | En el código | En la base |
+|---|---|---|
+| Herencia `Empleado` → `Persona` | `class Empleado(Persona)` | los datos de persona van en la tabla `empleado` |
+| Agregación ◇ `Departamento`–`Empleado` | `agregar_empleado()`, `quitar_empleado()` | `ON DELETE SET NULL`: **borrar un departamento no borra a sus empleados** |
+| Composición ◆ `Empleado`–`RegistroTiempo` | `registrar_tiempo()` | `ON DELETE CASCADE`: los registros se van con el empleado |
+| Asociación «gerente» | `asignar_gerente()` | `gerente_id` (solo alguien del mismo departamento) |
+| Muchos a muchos `Proyecto`–`Empleado` | `asignar_empleado()` actualiza los dos lados | tabla intermedia `empleado_proyecto` |
 
-**La base es la única fuente de verdad de la relación entre `Departamento` y `Empleado`.** Los
-métodos del diagrama, `agregar_empleado`, `quitar_empleado`, `asignar_gerente` y
-`listar_empleados`, escriben y leen las claves foráneas directamente; no hay listas en memoria que
-se puedan desfasar, y `obtener_resumen()` cuenta con el mismo `COUNT(*)` que muestra el menú.
-Relacionar un objeto sin guardar lanza `ValueError`.
+La relación entre departamentos y empleados **vive solo en la base**: no hay copias en memoria que
+se puedan desincronizar.
 
-- `empleado.departamento_id` → agregación, `ON DELETE SET NULL`: borrar un departamento no
-  borra a su gente.
-- `departamento.gerente_id` → «gerente» 0..1, `ON DELETE SET NULL`: borrar a la gerente deja el
-  cargo vacante. Solo se asigna a alguien del departamento, y cambiarla de departamento libera el
-  cargo en la misma transacción.
-- `registro_tiempo.empleado_id` → composición, `ON DELETE CASCADE`: los registros no
-  sobreviven al empleado.
-- `empleado_proyecto` → tabla intermedia de la relación muchos a muchos.
+### El CRUD
+
+Se hace sobre **`Empleado` y `Departamento`**, las dos clases relacionadas que pide la evaluación.
+Las operaciones son métodos de cada clase:
+
+| Operación | Método | Detalle |
+|---|---|---|
+| **C** · crear | `guardar()` | el id lo asigna la base; guardar dos veces se rechaza |
+| **R** · leer | `listar()`, `buscar()` | columnas con nombre, nunca `SELECT *`; buscar algo que no existe devuelve `None` |
+| **U** · actualizar | `renombrar()`, `actualizar_contacto()`, `agregar_empleado()` | valida primero y recién después escribe |
+| **D** · eliminar | `eliminar()` | pide permiso y confirma que de verdad borró algo |
+
+La conexión se abre y se cierra en cada operación (`conectar()`), con las claves foráneas activadas
+y la transacción confirmada o deshecha automáticamente.
 
 ## Seguridad
 
-- **Inyección SQL:** consultas parametrizadas, nunca concatenación de cadenas.
-- **Claves:** `hashlib.scrypt` con sal aleatoria de 16 bytes por usuario y factor de trabajo
-  `n=2**16`, comparación con `secrets.compare_digest`. El hash guarda sus propios parámetros,
-  `scrypt$n$r$p$sal$hash`, para que subir el costo mañana no invalide los hashes de hoy. La clave
-  en claro nunca se guarda en el objeto, y no hay ninguna credencial escrita en el código.
-- **Autorización:** tres roles en `Rol`, con su mapa de módulos en `Usuario._PERMISOS`.
-  Las nueve operaciones protegidas exigen el parámetro `solicitante` y pasan por `autorizar()`.
-- **Permisos del archivo:** la base queda en `0600`. SQLite la crea en `0644` y adentro hay
-  sueldos, así que el encapsulamiento no sirve de nada si cualquier usuario del equipo puede abrir
-  el archivo con otra herramienta.
-- **Path traversal:** `Informe.exportar()` resuelve la ruta destino y la rechaza si sale del
-  directorio de trabajo.
-- **Inyección de fórmulas:** las celdas del CSV exportado que empiezan con `=`, `+`, `-` o `@`
-  salen con un apóstrofo delante, para que la planilla las lea como texto y no las ejecute.
-  `csv.writer` escapa lo que rompe el formato del archivo, no lo que la planilla interpreta
-  después.
-- **Validación de entrada:** el dominio rechaza salarios fuera de rango, contratos con fecha
-  futura, jornadas de más de 24 horas, contacto mal formado y caracteres de control, que en un
-  programa de terminal permiten falsear la pantalla. La interfaz acota además todo
-  entero tecleado, porque SQLite desborda más allá de 64 bits.
-- **Errores:** el bucle de `main.py` atrapa cada familia de `sqlite3.Error` por separado y
-  cierra con un `except` general, de modo que ningún fallo tumba la sesión.
+Es el foco de la asignatura, así que la resumimos punto por punto:
 
-### Lo que este sistema no cubre
+- **Inyección SQL:** todas las consultas usan parámetros `?`. El dato nunca se pega dentro del SQL.
+- **Contraseñas:** se guardan como hash `scrypt` con sal aleatoria, nunca en texto plano, y se
+  comparan en tiempo constante (`secrets.compare_digest`). El hash guarda su costo, así que se
+  puede subir más adelante sin romper las claves existentes.
+- **Permisos por rol:** tres roles (`ADMIN_RRHH`, `GERENTE`, `EMPLEADO`). Las nueve operaciones que
+  escriben o muestran datos sensibles, como ver un salario, piden quién lo solicita y pasan por
+  `autorizar()`.
+- **Datos privados:** el salario es un atributo privado y solo sale con permiso. Los listados y los
+  informes nunca lo muestran.
+- **Archivo de la base:** queda con permisos `0600`, legible solo por su dueño, porque adentro hay
+  sueldos.
+- **Validación de entradas, en tres capas:**
+  1. **el menú** revisa el formato (números con techo, fechas reales) y vuelve a preguntar;
+  2. **las clases** revisan las reglas del negocio: salario en rango, contrato no futuro, correo
+     válido de hasta 254 caracteres, teléfono chileno, textos sin caracteres invisibles ni códigos
+     que alteren la terminal;
+  3. **la base** repite las reglas con `CHECK`, `NOT NULL` y `UNIQUE` como última red.
+- **Errores:** el menú atrapa cada tipo de error por separado (dato inválido, correo repetido, base
+  no disponible, falta de permiso) y muestra un mensaje claro. **Ningún error cierra el programa.**
+- **Exportación a CSV:** las celdas que una planilla podría ejecutar como fórmula (`=`, `+`, `-`,
+  `@`) se neutralizan, y las rutas que intentan salir de la carpeta (`../`) se rechazan.
 
-- **Cuatro de las seis tablas no tienen código que las escriba, a propósito.** El esquema es el
-  contrato completo del diagrama, pero el CRUD de esta unidad es sobre las dos clases relacionadas
-  que pide la evaluación. `Proyecto` y `RegistroTiempo` viven en memoria, con sus reglas probadas en
-  la autoverificación; `proyecto`, `empleado_proyecto` y `registro_tiempo` quedan listas para
-  persistirlas, y `usuario` llega con la autenticación.
+### Cómo lo comprobamos
 
-- **No hay autenticación.** La tabla `usuario` existe y ningún código la escribe: el menú
-  construye su solicitante al arrancar. Los roles protegen del uso incorrecto, no de un atacante,
-  porque nadie verifica la identidad de quien dice ser el administrador. El inicio de sesión es
-  materia de la unidad siguiente y agregarlo le pondría a `Usuario` métodos que el diagrama no
-  tiene.
-- **XSS y cabeceras HTTP no aplican.** No hay servidor ni salida HTML: la interfaz es una
-  terminal. Los dos contextos que aquí interpretan el dato, la planilla y la terminal, están
-  cubiertos arriba.
-- **Sin cifrado en reposo ni concurrencia.** La base es un archivo en claro y escribe un solo
-  proceso.
+- **Autoverificación** (`python3 ecotech.py`): prueba con `assert` las reglas del dominio, los
+  permisos, el CRUD completo, las relaciones leídas desde la base y la exportación. Termina en
+  `OK` o se detiene en la regla que falló.
+- **Auditoría de seguridad en cuatro pasadas** (`docs/AUDITORIA.md`). Encontró, entre
+  otras cosas, que un número de 25 dígitos cerraba el programa y que borrar un empleado no pedía
+  permiso. Las dos cosas se corrigieron y hoy tienen su prueba.
 
-El detalle de cada punto, con su reproducción, está en `docs/AUDITORIA.md` y `docs/AUDITORIA2.md`.
+## Uso de inteligencia artificial
 
-## Menú
+Usamos Claude (Anthropic) con Claude Code, y revisamos sugerencias de GitHub Copilot. No copiamos y
+pegamos: cada propuesta se planificó, se leyó, se probó y se decidió. De 25 fragmentos revisados,
+**2 se adoptaron, 13 se modificaron y 10 se descartaron**, siempre por seguridad, eficiencia o
+coherencia con el diagrama. Algunos ejemplos:
 
-Diez opciones sobre las dos clases relacionadas, agrupadas por operación: **C** crear datos de
-ejemplo, un departamento o un empleado (1-3); **R** listar departamentos y empleados (4-5);
-**U** renombrar departamento, actualizar contacto y asignar departamento (6-8); **D** eliminar
-departamento o empleado (9-10). Escribir `x` en cualquier dato que se pida cancela la acción sin
-guardar nada, y `m` reimprime el menú.
+- se descartaron métodos que la IA sugería y que el UML no tiene;
+- se corrigió una conexión que quedaba abierta y un `SELECT *` que arrastraba el salario;
+- se recortó un menú de 14 opciones con login a 10 opciones, porque el login es de la Unidad 3.
+
+El análisis completo va en la entrega de la evaluación.
+
+## Pendiente para la Unidad 3
+
+| Qué falta | Por qué no está hoy |
+|---|---|
+| **Inicio de sesión** con la tabla `usuario` | Es contenido de la Unidad 3. Hoy el menú opera siempre como `ADMIN_RRHH` |
+| **Protección contra fuerza bruta**: bloqueo temporal tras varios intentos fallidos y la misma demora exista o no el usuario | Sin login no hay credencial que atacar. El diseño está en `docs/AUDITORIA.md`, sección 3.4 |
+| **Menú de informes** con permisos reales por rol | Solo tiene sentido con usuarios autenticados: un gerente ve el informe sin sueldos, un empleado no puede generarlo |
+| **Consumo de APIs externas** (HTTP y JSON), con manejo de errores de red, tiempos de espera y códigos de respuesta | Es el otro eje de la Unidad 3 |
+| Guardar `Proyecto` y `RegistroTiempo` en la base | Sus tablas ya existen; el CRUD de esta unidad pedía dos clases relacionadas |
+
+Agregar el login le suma métodos a `Usuario`, así que primero se actualiza el diagrama y después el
+código, para no romper la correspondencia entre los dos.
+
+### Límites conocidos
+
+- No hay servidor web, así que XSS y cabeceras HTTP no aplican: los contextos que interpretan datos
+  aquí son la terminal y la planilla, y los dos están cubiertos.
+- La base no está cifrada y está pensada para un solo usuario a la vez.
+- La limpieza de pantalla usa códigos ANSI: la consola antigua de Windows (`cmd` sin modo VT) los
+  muestra como texto. Windows Terminal, Linux y macOS funcionan bien.
+- Los archivos de `comentado/` son para leer. Se ejecuta la raíz.
+
+## El menú
+
+Diez opciones agrupadas por operación: **C** crear (1-3), **R** leer (4-5), **U** actualizar (6-8) y
+**D** eliminar (9-10). Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a
+aparecer.
 
 <details>
-<summary><b>Sesión de ejemplo</b> (extracto real de <code>python3 main.py</code>)</summary>
+<summary><b>Sesión de ejemplo</b> (extracto real de <code>python3 main.py</code>, sin las pausas)</summary>
 
 ```
 ==================================================================
@@ -154,17 +166,17 @@ guardar nada, y `m` reimprime el menú.
     4. Departamentos              9. Departamento
     5. Empleados                 10. Empleado
 
-   m. menú   ·   x. cancela el dato que se pide   ·   0. salir
+   Escriba "x" para cancelar la acción en curso   ·   0. salir
 ==================================================================
 
-   Opción (m = menú): 1
+   Opción: 1
    Creados 2 departamentos y 3 empleados.
 
-   Opción (m = menú): 4
+   Opción: 4
    [1] Desarrollo Sostenible · 2 empleados
    [2] Investigación y Desarrollo · 1 empleado
 
-   Opción (m = menú): 6
+   Opción: 6
    (escriba x para cancelar)
    Id del departamento: abc
    ! Escriba un número entero, sin puntos ni letras.
@@ -174,21 +186,14 @@ guardar nada, y `m` reimprime el menú.
    Nuevo nombre: Innovación Sostenible
    Ahora se llama Innovación Sostenible.
 
-   Opción (m = menú): 7
+   Opción: 7
    (escriba x para cancelar)
    Id del empleado: 1
    Nuevo teléfono: 22 987 6543
    Nuevo correo: x
    Acción cancelada. No se guardó nada.
 
-   Opción (m = menú): 7
-   (escriba x para cancelar)
-   Id del empleado: 1
-   Nuevo teléfono: 22 987 6543
-   Nuevo correo: juanita.bravo@ecotech.cl
-   Juanita Bravo Sepúlveda | juanita.bravo@ecotech.cl | 229876543 | contrato: 2023-04-17
-
-   Opción (m = menú): 3
+   Opción: 3
    (escriba x para cancelar)
    Nombre completo: Rodrigo Peña Alarcón
    Dirección: Manuel Montt 300, Ñuñoa
@@ -200,31 +205,12 @@ guardar nada, y `m` reimprime el menú.
    Salario: 500000000
    ! Salario fuera de rango (1 a 100000000): 500000000
 
-   Opción (m = menú): 3
-   (escriba x para cancelar)
-   Nombre completo: Rodrigo Peña Alarcón
-   Dirección: Manuel Montt 300, Ñuñoa
-   Teléfono: +56 9 3344 5566
-   Correo: rpena@ecotech.cl
-   Inicio de contrato (AAAA-MM-DD): 2025-03-10
-   Salario: 1720000
-   Empleado contratado con id 4.
-
-   Opción (m = menú): 9
+   Opción: 9
    (escriba x para cancelar)
    Id del departamento: 1
    Departamento eliminado. Sus empleados siguen vigentes, sin departamento: la agregación es ON DELETE SET NULL.
 
-   Opción (m = menú): 5
-   [3] Camila Reyes Ortiz | creyes@ecotech.cl | 974128536 | contrato: 2024-01-08
-   [2] Ignacio Fuentes Cárdenas | ifuentes@ecotech.cl | 965432109 | contrato: 2022-11-02
-   [1] Juanita Bravo Sepúlveda | juanita.bravo@ecotech.cl | 229876543 | contrato: 2023-04-17
-   [4] Rodrigo Peña Alarcón | rpena@ecotech.cl | 933445566 | contrato: 2025-03-10
-
-   Opción (m = menú): 1
-   ! Ya hay datos cargados: los ejemplos solo se crean sobre una base vacía.
-
-   Opción (m = menú): 3
+   Opción: 3
    (escriba x para cancelar)
    Nombre completo: Carla Reyes Ortiz
    Dirección: Pedro de Valdivia 55, Providencia
@@ -234,12 +220,11 @@ guardar nada, y `m` reimprime el menú.
    Salario: 1100000
    ! Ese correo ya está registrado. Use otro.
 
-   Opción (m = menú): 0
+   Opción: 0
    Hasta luego.
 ```
 
-Tres capas de validación en una sola sesión: el formato lo juzga el menú y se reintenta en el
-sitio, la regla de negocio la juzga la clase y aborta la operación, la restricción la juzga
-SQLite y devuelve un `IntegrityError`. Ninguna interrumpe el programa.
+En una sola sesión se ven las tres capas: el menú rechaza el formato y vuelve a preguntar, la clase
+rechaza el salario fuera de rango y la base rechaza el correo repetido. El programa nunca se cierra.
 
 </details>

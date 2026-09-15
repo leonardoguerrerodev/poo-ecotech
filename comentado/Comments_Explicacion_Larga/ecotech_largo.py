@@ -9,7 +9,7 @@ Implementación en Python del modelo UML validado en la Unidad 1
     4. Autoverificación
 
 Uso:
-    python3 ecotech.py   → autoverificación sobre una base temporal
+    python3 ecotech.py   → autoverificación sobre una base temporal hasta implementar la unidad 3
     python3 main.py      → menú de la aplicación
 """
 
@@ -41,15 +41,16 @@ from pathlib import Path
 # legítimos. PATRON_TELEFONO acepta el formato chileno con o sin prefijo
 # país; SEPARADORES se descarta antes de comparar.
 #
-# Permisivo no es todo: las clases negadas de PATRON_CORREO excluyen los
-# caracteres de control, `\x00-\x1f` y `\x7f`. Antes no lo hacían, y `\x1b`
-# no es `\s`, así que un correo con un escape de terminal pasaba la
-# validación. PATRON_TELEFONO y PATRON_USUARIO no los admiten por su propia
-# forma y no hizo falta tocarlos.
+# Permisivo no es todo: PATRON_CORREO excluye los caracteres de control
+# (`\x1b` no es `\s` y un escape de terminal pasaba). El correo además pasa
+# por `texto()`. Teléfono y usuario no los admiten por su propia forma.
+#
+# Teléfono con `[0-9]` y no `\d`: `\d` acepta dígitos de cualquier alfabeto
+# ("٩٨٧٦٥٤٣٢١" pasaba).
 
 PATRON_CORREO = re.compile(r"[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+\.[^@\s\x00-\x1f\x7f]+")
 PATRON_USUARIO = re.compile(r"[a-z0-9._-]{3,20}")
-PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9]\d{8}")
+PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9][0-9]{8}")
 SEPARADORES = re.compile(r"[\s()\-.]")
 
 # Techo del salario, salido de la auditoría: sin él, un número de 25 dígitos
@@ -62,23 +63,20 @@ SALARIO_MAXIMO = 100_000_000
 INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
-# Una sola función para todo texto obligatorio. `campo` nombra lo que falló.
+# La única puerta de todo texto obligatorio: nombres, dirección, correo,
+# descripciones y título. Una guarda para todos; `campo` nombra lo que falló.
 #
-# El tercer rechazo salió de la segunda auditoría: los caracteres de control
-# se guardaban tal cual, y el menú vuelve a imprimir esos textos al listar la
-# dotación. Un nombre con `\x1b[2J` le borra la pantalla a quien lista, y uno
-# con `\x1b[1A` puede sobrescribir la línea de arriba y mentir sobre lo que
-# hay en la base. Es el mismo problema que el XSS en la web, en la terminal.
-#
-# Va aquí porque esta función es la única puerta de todo texto obligatorio:
-# nombre, dirección y las dos descripciones. Una guarda, cuatro campos.
+# Rechaza lo no imprimible porque el menú reimprime estos textos: un nombre
+# con `\x1b[2J` borraría la pantalla, y uno con U+202E se vería al revés. Es
+# el XSS de la terminal. `isprintable()` cubre controles, C1 y marcas
+# invisibles de una vez. Costo: también rechaza el espacio duro (U+00A0).
 def texto(valor: str, campo: str, maximo: int = 120) -> str:
     limpio = valor.strip()
     if not limpio:
         raise ValueError(f"{campo} no puede estar vacío")
     if len(limpio) > maximo:
         raise ValueError(f"{campo} supera los {maximo} caracteres")
-    if any(ord(c) < 32 or ord(c) == 127 for c in limpio):
+    if not limpio.isprintable():
         raise ValueError(f"{campo} contiene caracteres de control")
     return limpio
 
@@ -311,7 +309,11 @@ class Persona(EntidadReportable):
     def actualizar_contacto(self, telefono: str, correo: str) -> None:
         self.__fijar_contacto(telefono, correo)
 
+    # El correo pasa por `texto()` antes de la regex: tope de 254 (el máximo
+    # del estándar) y fuera lo no imprimible. Sin tope, una entrada larga hecha
+    # para fallar al final pone la regex muy lenta.
     def __fijar_contacto(self, telefono: str, correo: str) -> None:
+        correo = texto(correo, "El correo", 254)
         if not self._validar_correo(correo):
             raise ValueError(f"Correo inválido: {correo!r}")
         if not self._validar_telefono(telefono):
@@ -979,6 +981,11 @@ def _autoverificar() -> None:
     # campo de texto y otro por el correo, que la regex vieja dejaba pasar.
     assert _rechaza(lambda: Departamento("Legal\x1b[2J")), "escape de terminal"
     assert _rechaza(lambda: nueva("j\x1bbravo@ecotech.cl")), "correo con escape"
+    # El correo largo tiene formato válido: solo lo frena el tope de 254.
+    assert _rechaza(lambda: nueva("a@" + "b" * 260 + ".cl")), "correo sin tope"
+    assert _rechaza(lambda: Departamento("Legal‮")), "marca bidi"
+    assert _rechaza(lambda: Empleado("J", "Calle 1", "٩٨٧٦٥٤٣٢١", "j@e.cl",
+                                     contrato, 1000)), "dígitos no ASCII"
     # PermissionError y no ValueError: no autorizado no es lo mismo que mal
     # escrito, y el menú los distingue.
     assert _rechaza(lambda: nueva().obtener_salario(basico),

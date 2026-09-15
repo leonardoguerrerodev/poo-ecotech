@@ -7,12 +7,15 @@ persistencia vive en los métodos de las clases de `ecotech.py`.
     python3 main.py
 """
 
+
+# Menú de terminal: traduce teclas a métodos. Sin una línea de SQL.
 import secrets
 import sqlite3
 from datetime import date
 
 from ecotech import Departamento, Empleado, Rol, Usuario, crear_tablas
 
+# Agrupado por operación C-R-U-D. La x descarta la acción entera.
 MENU = """
 ==================================================================
    EcoTech Solutions — Gestión de empleados
@@ -29,31 +32,29 @@ MENU = """
    Escriba "x" para cancelar la acción en curso   ·   0. salir
 =================================================================="""
 
-# Techo de todo entero que teclee el usuario. Existe porque SQLite guarda
-# enteros de 64 bits, y el mayor que cabe es 2**63-1 (2 elevado a 63, menos
-# 1: 9.223.372.036.854.775.807). Un número más grande no lanza un error de
-# base, lanza OverflowError al convertirlo, y eso mataría el programa.
+# Techo de enteros: SQLite guarda hasta 2**63-1 y más grande tumbaba el programa.
 MAXIMO_ENTERO = 10**9
 
+# Opciones que piden datos: solo ahí se avisa que x cancela.
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10"}
 
 
+# Limpia con código ANSI, no con os.system: no abre shell ni busca clear.
 def limpiar_y_mostrar_menu() -> None:
     """Limpia la terminal y vuelve a dibujar el menú principal."""
-    # Secuencia ANSI: borra la pantalla y lleva el cursor al inicio, sin
-    # abrir una shell ni buscar un ejecutable en el PATH.
     print("\033[2J\033[H", end="")
     print(MENU)
 
 
 # --- Entrada validada del usuario ------------------------------------
-# Reintentan hasta recibir algo usable. El programa nunca avanza con un
-# dato que las clases vayan a rechazar por formato.
 
+# Cancelar es una excepción: corta en un solo lugar sin guardar nada.
+# No hereda de ValueError: pedir_fecha la tomaría como fecha mal escrita.
 class Cancelado(Exception):
     """El usuario escribió x en lugar del dato."""
 
 
+# Único input de datos: x o X cancela.
 def leer(mensaje: str) -> str:
     valor = input(mensaje).strip()
     if valor.lower() == "x":
@@ -69,6 +70,7 @@ def pedir_texto(mensaje: str) -> str:
         print("   ! No puede quedar vacío.")
 
 
+# isdecimal: solo lo que int() convierte. El largo se mira antes de convertir.
 def pedir_entero(mensaje: str) -> int:
     while True:
         valor = leer(mensaje)
@@ -80,6 +82,7 @@ def pedir_entero(mensaje: str) -> int:
             return int(valor)
 
 
+# fromisoformat valida formato y calendario.
 def pedir_fecha(mensaje: str) -> date:
     while True:
         try:
@@ -88,6 +91,7 @@ def pedir_fecha(mensaje: str) -> date:
             print("   ! Formato de fecha: AAAA-MM-DD, por ejemplo 2024-03-01.")
 
 
+# Sirve para Empleado y Departamento: los dos tienen buscar().
 def buscar_o_avisar(clase, id: int):
     objeto = clase.buscar(id)
     if objeto is None:
@@ -97,6 +101,7 @@ def buscar_o_avisar(clase, id: int):
 
 # --- Lecturas ---------------------------------------------------------
 
+# El conteo sale de la base, no de una lista en memoria.
 def listar_departamentos() -> None:
     departamentos = Departamento.listar()
     if not departamentos:
@@ -108,6 +113,7 @@ def listar_departamentos() -> None:
               f"{total} empleado{'s' if total != 1 else ''}")
 
 
+# El resumen no trae el salario.
 def listar_empleados() -> None:
     empleados = Empleado.listar()
     if not empleados:
@@ -118,6 +124,7 @@ def listar_empleados() -> None:
 
 # --- Datos de ejemplo -------------------------------------------------
 
+# Datos de ejemplo con aspecto real.
 PLANTILLA = [
     ("Juanita Bravo Sepúlveda", "Av. Matta 1234, Santiago",
      "+56 9 8765 4321", "jbravo@ecotech.cl", date(2023, 4, 17), 1450000,
@@ -131,6 +138,7 @@ PLANTILLA = [
 ]
 
 
+# Solo sobre base vacía: repetirla duplicaría departamentos.
 def sembrar(solicitante: Usuario) -> None:
     """La C del ciclo, con datos que parecen reales."""
     if Departamento.listar() or Empleado.listar():
@@ -154,6 +162,7 @@ def sembrar(solicitante: Usuario) -> None:
 
 # --- Despacho ---------------------------------------------------------
 
+# if/elif y no diccionario: cada opción pide datos distintos.
 def ejecutar(opcion: str, solicitante: Usuario) -> None:
     if opcion in PIDEN_DATOS:
         print("   (escriba x para cancelar)")
@@ -168,6 +177,7 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
               f"{departamento.guardar(solicitante)}.")
 
     elif opcion == "3":
+        # Una x en cualquier campo cancela antes de crear el objeto.
         empleado = Empleado(pedir_texto("   Nombre completo: "),
                             pedir_texto("   Dirección: "),
                             pedir_texto("   Teléfono: "),
@@ -230,6 +240,7 @@ def ejecutar(opcion: str, solicitante: Usuario) -> None:
         print("   ! Opción desconocida.")
 
 
+# Si la base no se puede preparar, no se muestra el menú.
 def main() -> None:
     try:
         crear_tablas()
@@ -237,10 +248,12 @@ def main() -> None:
         print(f"   ! No se pudo preparar la base de datos: {error}")
         return
 
+    # Solicitante fijo con clave al azar: el login es de la Unidad 3.
     solicitante = Usuario("rrhh.admin", secrets.token_urlsafe(24) + "aA1!",
                           Rol.ADMIN_RRHH)
     limpiar_y_mostrar_menu()
 
+    # El try va dentro del bucle: un error se muestra y el menú sigue.
     while True:
         try:
             opcion = input("\n   Opción: ").strip().lower()
@@ -248,28 +261,39 @@ def main() -> None:
                 print("   Hasta luego.")
                 return
             ejecutar(opcion, solicitante)
+
         except Cancelado:
             print("   Acción cancelada. No se guardó nada.")
+
+        # De lo específico a lo general. Correo repetido con mensaje propio.
         except sqlite3.IntegrityError as error:
             if error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
                 print("   ! Ese correo ya está registrado. Use otro.")
             else:
                 print("   ! La base rechazó el dato por una restricción. "
                       "No se guardó nada.")
+
         except sqlite3.OperationalError as error:
             print(f"   ! No se pudo acceder a la base de datos: {error}")
+
         except sqlite3.Error:
             print("   ! La base rechazó la operación. No se guardó nada.")
+
         except PermissionError as error:
             print(f"   ! {error}")
+
         except ValueError as error:
             print(f"   ! {error}")
+
         except (KeyboardInterrupt, EOFError):
             print("\n   Interrumpido. Hasta luego.")
             return
+
+        # Último recurso: nombra el error y sigue.
         except Exception as error:
             print(f"   ! Error inesperado ({type(error).__name__}): {error}")
 
+        # Pausa para leer el resultado. Ctrl-C aquí también sale limpio.
         try:
             input("\n   Presione Enter para continuar...")
         except (KeyboardInterrupt, EOFError):
