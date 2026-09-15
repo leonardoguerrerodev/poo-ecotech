@@ -2,4 +2,7 @@
 .venv/
 __pycache__/
 .env
-docs/
+comentado/
+
+docs/*
+!docs/AUDITORIA.md
