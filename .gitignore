@@ -1,4 +1,6 @@
 *.db
+*.zip
+*.csv
 .venv/
 __pycache__/
 .env
@@ -6,3 +8,4 @@ comentado/
 
 docs/*
 !docs/AUDITORIA.md
+!docs/ANALISIS_IA.md

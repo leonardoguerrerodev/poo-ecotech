@@ -1,7 +1,7 @@
 # Auditoría de seguridad — EcoTech Solutions
 
-**Caso EcoTech Solutions · Evaluación Sumativa 2, Unidad 2 · TI3V21**
-**Alcance:** `ecotech.py` y `main.py`
+**Caso EcoTech Solutions · Evaluación Sumativa 2, Unidades 2 y 3 · TI3V21**
+**Alcance:** `ecotech.py`, `main.py` y, desde la pasada 6, `servicios.py`
 
 | Pasada | Fecha | Foco |
 |---|---|---|
@@ -10,12 +10,14 @@
 | 3 | 12-sep-2026 | integridad de la persistencia: la relación Departamento ↔ Empleado |
 | 4 | 15-sep-2026 | revisión de entradas y del código aportado por un compañero |
 | 5 | 15-sep-2026 | análisis de SonarCloud sobre el repositorio de GitHub (§2.10) |
+| 6 | 21-sep-2026 | **Unidad 3**: inicio de sesión, fuerza bruta, consumo de APIs, errores de red y mensajes de error (§2.11) |
 
 **Método:** ejecutar ataques concretos contra el código, no leerlo y opinar. Cada hallazgo trae su
 reproducción y se puede repetir delante del docente.
 
 Evalúan esto sobre todo los indicadores **2.1.2** (encapsulamiento), **2.1.3** (persistencia) y
-**2.1.4** (validación y control de errores).
+**2.1.4** (validación y control de errores), y desde la pasada 6 los **3.1.2** (autenticación y
+información sensible) y **3.1.3** (errores de red y códigos HTTP).
 
 ---
 
@@ -36,10 +38,11 @@ Evalúan esto sobre todo los indicadores **2.1.2** (encapsulamiento), **2.1.3** 
 | 2.8 | La relación Departamento ↔ Empleado vivía en dos lugares | 3 | Alta | **Corregido** |
 | 2.9 | Limpieza de pantalla con `os.system` | 4 | Baja | **Corregido** |
 | 2.10 | SonarCloud: carácter bidireccional, regex super-lineal, complejidad y 13 más | 5 | Media | **Corregido** (uno anotado para la Unidad 3) |
-| 3.1 | `actualizar_contacto` no pide permiso | 1 | Decisión | Se declara |
+| 2.11 | Unidad 3: sin autenticación, permisos tardíos, mensajes que filtraban detalle, datos de la red sin validar | 6 | Grave | **Corregido** |
+| 3.1 | `actualizar_contacto` no pide permiso | 1 y 6 | Decisión | **Cerrado en el menú** (pasada 6) |
 | 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | Se declara |
 | 3.3 | Datos de contacto en el resumen exportable | 1 | Observación | Se declara |
-| 3.4 | No existe autenticación | 2 | Grave | Se declara: Unidad 3 |
+| 3.4 | No existe autenticación | 2 y 6 | Grave | **Corregido** en la Unidad 3 (§2.11) |
 | 3.5 | Defectos latentes en `Usuario` | 2 | Observación | Parcial |
 
 ---
@@ -479,6 +482,88 @@ en SonarCloud.
 
 ---
 
+### 2.11 Unidad 3: autenticación, APIs y errores de red · Grave
+
+Sexta pasada, 21-sep-2026. Cierra el hallazgo más grave que quedaba abierto (§3.4) y revisa la
+superficie nueva: la red. Las decisiones sobre el código que propuso la IA están en
+`ANALISIS_IA.md`, filas 26 a 43.
+
+#### Inicio de sesión y fuerza bruta — el diseño de §3.4, implementado
+
+| Amenaza | Defensa | Dónde |
+|---|---|---|
+| Entrar sin cuenta | El menú no existe sin `Usuario.autenticar()`; el `solicitante` es el usuario autenticado, no uno construido en el código | `main.iniciar_sesion` |
+| Clave en claro | `scrypt` con sal por cuenta, costo `2**16`, comparación en tiempo constante; en la base solo queda `scrypt$n$r$p$sal$hash`. La clave se teclea con `getpass`, sin eco | `Usuario._hashear`, `verificar_clave` |
+| Adivinar la clave | 5 fallos seguidos bloquean la cuenta **5 minutos**, persistido en la base (`intentos_fallidos`, `bloqueado_hasta`): reiniciar el programa no lo levanta. Durante el bloqueo, **ni la clave correcta entra** | `Usuario.autenticar` |
+| Descubrir qué cuentas existen | Mismo mensaje para clave mala, cuenta inexistente y cuenta bloqueada, y **misma demora**: si el usuario no existe se calcula igual un scrypt señuelo | `Usuario.autenticar` |
+| Credenciales vacías o malformadas | Se rechazan antes de consultar la base; el nombre pasa por `PATRON_USUARIO` y viaja con `?` | `main.iniciar_sesion`, `Usuario.buscar_por_nombre` |
+| Crear un administrador sin sesión | Sin solicitante solo entra **la primera cuenta**, como `ADMIN_RRHH`, con una sola sentencia `INSERT … WHERE NOT EXISTS`: no hay ventana entre comprobar y escribir | `Usuario.guardar` |
+| Sesión olvidada abierta | Tras **10 minutos** sin actividad, la siguiente opción cierra la sesión y pide credenciales | `main.usar_sesion` |
+
+Reproducción: `python3 ecotech.py` prueba todo lo anterior con `assert`, incluida una inyección
+`c.rojas' OR '1'='1` en el nombre y el sexto intento con la clave correcta.
+
+#### Control de acceso: antes de pedir datos, no después
+
+Con roles reales apareció un defecto que con el administrador fijo de la U2 no se veía: los métodos
+revisaban el permiso **al escribir**. Un gerente llenaba los seis datos de «contratar» para recibir
+«No autorizado», y «Datos de ejemplo» creaba los departamentos antes de fallar en los empleados,
+dejando una carga a medias. Ahora `ejecutar()` consulta el mapa `PERMISO` **antes de pedir el primer
+dato**, y los métodos lo vuelven a revisar al escribir. Eso cierra también §3.1: la opción 7 exige
+el módulo `empleados`, sin tocar la firma que fija el UML.
+
+| Rol | Puede | No puede |
+|---|---|---|
+| `ADMIN_RRHH` | todo, incluido crear usuarios y ver pagos en moneda extranjera | — |
+| `GERENTE` | leer; crear, renombrar y eliminar departamentos; clima; informe de dotación | contratar, asignar, editar o eliminar empleados, ver sueldos, pagos, crear usuarios |
+| `EMPLEADO` | leer y consultar el clima de una faena | todo lo que escribe, informes, pagos |
+
+**El consumo de APIs también está restringido por sesión y rol**: nadie llega al menú sin
+autenticarse, y el pago en moneda extranjera, que combina el sueldo con el tipo de cambio, exige
+el permiso de `empleados`.
+
+#### La red: tiempo de espera, códigos HTTP y respuestas no confiables
+
+Todo el tráfico sale por **un solo método**, `ServicioExterno.__consultar`, y toda falla sale de ahí
+como `ServicioNoDisponible`, que el menú atrapa y muestra sin cerrarse.
+
+| Falla | Cómo se controla | Mensaje |
+|---|---|---|
+| El servidor no contesta | `timeout=(3.05, 10)`: 3 s para conectar, 10 para leer. Sin él, `requests` espera para siempre | «no respondió a tiempo» |
+| Sin red o DNS caído | `requests.ConnectionError` | «No hay conexión… Revise la red» |
+| Cualquier otra falla de `requests` | `RequestException`, la base de todas | «No se pudo completar la consulta» |
+| `400` · `404` · `429` · `5xx` · otro ≠ `200` | Se revisa el código **antes** de leer el cuerpo | un mensaje por código, con el número |
+| Cuerpo que no es JSON | `ValueError` de `respuesta.json()` | «no es JSON válido» |
+| JSON sin los campos o con otro tipo | `KeyError`/`TypeError`/`IndexError` y comprobación de tipo numérico | «formato inesperado» |
+| Tipo de cambio `0`, negativo, `Infinity` o `NaN` | `math.isfinite()` y `> 0` | «formato inesperado» |
+| Nombre de ciudad con escapes de terminal, **venido de la red** | `isprintable()`; si falla, se muestra el que escribió el usuario | — |
+
+Las entradas que van a la API se validan **antes** de salir: la ciudad con un patrón de letras
+(Unicode), espacios, guion, punto y apóstrofo, de 2 a 80 caracteres, y viaja en `params=`, que la
+codifica; la moneda contra una **lista blanca** `USD`, `EUR`, `UF`, porque termina en la ruta de la
+URL. Solo HTTPS, y la verificación del certificado nunca se desactiva.
+
+Reproducción: `python3 servicios.py` simula cada fila de la tabla sin conectarse. En vivo:
+`HTTPS_PROXY=http://127.0.0.1:9 python3 main.py` corta la red, y el menú sigue funcionando.
+
+#### Mensajes de error que no filtran nada
+
+La guía lo pide textual: «restringir la exposición de información sensible en los mensajes de
+error». Tres cambios en `main.py`:
+- `OperationalError` ya no imprime el texto de SQLite, que puede traer la ruta de la base.
+- `except Exception` imprime solo el **tipo** del error, no su mensaje.
+- los errores de red nunca muestran la URL ni la traza: `raise … from None` corta la cadena, y el
+  mensaje lo escribe el sistema, no la librería.
+
+#### Información sensible, en resumen
+
+| Dato | Protección |
+|---|---|
+| Claves | solo su hash scrypt; `getpass` al teclearlas; nunca se imprimen ni se registran |
+| Sueldos | privados, solo con permiso `empleados`; fuera de listados, informes y CSV |
+| Base de datos | `0600`; `.gitignore` excluye `*.db` y los `*.csv` exportados |
+| Llaves de API | no hay: ninguna de las dos APIs la exige. Si una la pidiera, iría en una variable de entorno o en `.env`, ya excluido por `.gitignore`, nunca en el código |
+
 ## 3. Decisiones declaradas
 
 ### 3.1 `actualizar_contacto` no pide permiso
@@ -487,6 +572,10 @@ en SonarCloud.
 dos parámetros**. Un tercero rompería la sustitución de la subclase y la correspondencia que evalúa el
 criterio 2.1.1. El dato es menos sensible que el salario y menos destructivo que un borrado, así que
 el costo se asume y se declara. Si hubiera que cerrarlo, se cambia primero el diagrama.
+
+**Cerrado en la pasada 6 sin tocar el diagrama:** el menú revisa el permiso `empleados` antes de
+la opción 7 (§2.11). El método sigue sin pedirlo; quien lo llame desde otro código tiene que
+autorizar antes.
 
 ### 3.2 `Empleado._proyectos` modificable desde fuera
 
@@ -504,7 +593,10 @@ del resumen** y tiene su propio método con permiso.
 
 ### 3.4 No existe autenticación · Unidad 3
 
-**Es el hallazgo más grave y el único que no se corrige.** La tabla `usuario` existe y ningún código
+> **Corregido el 21-sep-2026 en la pasada 6 (§2.11)**, con el diseño que sigue. Se deja el
+> texto original como registro.
+
+**Era el hallazgo más grave y el único que no se corregía.** La tabla `usuario` existe y ningún código
 la escribe; el solicitante del menú se construye fijo. Consecuencia, sin adornos: **los permisos
 protegen contra el uso incorrecto, no contra un atacante**, porque nadie verifica que quien dice ser
 administrador lo sea.
@@ -527,8 +619,9 @@ administrador lo sea.
 
 ### 3.5 Defectos latentes en `Usuario` · parcial
 
-Ninguno es alcanzable hoy, porque `Usuario` no se persiste; se vuelven reales con §3.4.
-- **`cambiar_clave` no persiste**: cambia el atributo en memoria. Se corrige cuando exista el `UPDATE`.
+Con la Unidad 3, `Usuario` ya se persiste.
+- **`cambiar_clave` no persiste**: cambia el atributo en memoria, y el menú no la ofrece. Se declara:
+  cuando haga falta, es un `UPDATE` de `hash_clave` con el mismo patrón que `autenticar`.
 - **`verificar_clave` confiaba en el formato del hash** y un hash corrupto reventaba al desempacar.
   **Corregido:** ahora comprueba el formato y lanza un `ValueError` explicado.
 
@@ -538,10 +631,10 @@ Ninguno es alcanzable hoy, porque `Usuario` no se persiste; se vuelven reales co
 
 - **Cifrado en reposo.** SQLite no lo trae. El `0600` (§2.3) es la mitigación que cabe: no cifra,
   pero saca el archivo del alcance de otros usuarios.
-- **Concurrencia.** Escribe un solo proceso. Con varios, la conexión por operación deja ventanas entre
+- **Concurrencia.** Escribe un solo proceso. El contador de intentos fallidos se lee y se escribe
+  en dos pasos; con varios procesos habría que usar `SET intentos_fallidos = intentos_fallidos + 1`. Con varios, la conexión por operación deja ventanas entre
   el `buscar` y el `eliminar` del menú.
-- **`Informe.exportar` no es alcanzable desde el menú.** Se corrigió igual (§2.4), porque la clase es
-  parte del entregable.
+- ~~**`Informe.exportar` no es alcanzable desde el menú.**~~ Desde la Unidad 3 sí: opción 13.
 - **La carpeta permitida para exportar depende del directorio de trabajo** (`Path.cwd()`). La guarda
   contra path traversal funciona igual; lo que cambia es cuál es la carpeta permitida.
 
@@ -552,8 +645,9 @@ Ninguno es alcanzable hoy, porque `Usuario` no se persiste; se vuelven reales co
 Desde la carpeta del proyecto:
 
 ```bash
-python3 ecotech.py     # autoverificación completa: termina en OK en ~1 s
-python3 main.py        # 1 crea ejemplos; probar 25 dígitos, salario 500000000, x para cancelar
+python3 ecotech.py     # autoverificación del dominio, el CRUD y el login: termina en OK en ~5 s
+python3 servicios.py   # autoverificación de las APIs, sin red: termina en OK
+python3 main.py        # la primera vez pide crear la cuenta de administrador
 ls -l ecotech.db       # tiene que decir -rw-------
 ```
 

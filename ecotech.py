@@ -9,8 +9,8 @@ Unidad 2 (`diagramas/modelo_u2.drawio`). Este archivo contiene, en este orden:
     4. Autoverificación
 
 Uso:
-    python3 ecotech.py   → autoverificación sobre una base temporal (el login llega en la Unidad 3)
-    python3 main.py      → menú de la aplicación
+    python3 ecotech.py   → autoverificación sobre una base temporal
+    python3 main.py      → inicio de sesión y menú de la aplicación
 """
 
 import csv                                  # escribe el informe en CSV sin romper comas ni comillas
@@ -21,7 +21,7 @@ import secrets                              # sal aleatoria segura y comparació
 import sqlite3                              # la base de datos: un archivo, sin servidor
 from abc import ABC, abstractmethod         # clases abstractas que no se pueden instanciar
 from contextlib import contextmanager       # `with conectar()`: abre y siempre cierra la conexión
-from datetime import date                   # fechas de contrato, registros y proyectos
+from datetime import date, datetime, timedelta  # fechas de contrato y bloqueo temporal del login
 from enum import Enum                       # roles fijos: un rol mal escrito falla al crearse
 from pathlib import Path                    # rutas: ubica la base y bloquea escapes con ".."
 
@@ -124,6 +124,8 @@ CREATE TABLE IF NOT EXISTS usuario (
     hash_clave     TEXT NOT NULL,
     rol            TEXT NOT NULL
                    CHECK (rol IN ('ADMIN_RRHH','GERENTE','EMPLEADO')),
+    intentos_fallidos INTEGER NOT NULL DEFAULT 0 CHECK (intentos_fallidos >= 0),
+    bloqueado_hasta   TEXT,
     empleado_id    INTEGER UNIQUE,
     FOREIGN KEY (empleado_id) REFERENCES empleado(id) ON DELETE CASCADE
 );
@@ -154,6 +156,11 @@ def crear_tablas() -> None:
         os.chmod(RUTA_ACTIVA, 0o600)
     except OSError as error:
         print(f"   ! No se pudo restringir los permisos de la base: {error}")
+
+
+def hay_usuarios() -> bool:
+    with conectar() as con:
+        return con.execute("SELECT 1 FROM usuario LIMIT 1").fetchone() is not None
 
 
 # =====================================================================
@@ -528,19 +535,28 @@ class Usuario:
     """tabla: usuario — credencial de acceso, no es entidad reportable."""
 
     _PERMISOS = {
-        Rol.ADMIN_RRHH: {"empleados", "departamentos", "proyectos", "informes"},
+        Rol.ADMIN_RRHH: {"empleados", "departamentos", "proyectos", "informes",
+                         "usuarios"},
         Rol.GERENTE: {"departamentos", "proyectos", "informes"},
         Rol.EMPLEADO: {"proyectos"},
     }
 
+    COLUMNAS = "id, nombre_usuario, hash_clave, rol, intentos_fallidos, bloqueado_hasta"
+    MAX_INTENTOS = 5
+    BLOQUEO = timedelta(minutes=5)
+
     def __init__(self, nombre_usuario: str, clave: str, rol: Rol,
-                 id: int | None = None, hash_clave: str | None = None):
+                 id: int | None = None, hash_clave: str | None = None,
+                 intentos_fallidos: int = 0,
+                 bloqueado_hasta: datetime | None = None):
         nombre_usuario = nombre_usuario.strip().lower()
         if not PATRON_USUARIO.fullmatch(nombre_usuario):
             raise ValueError(f"Nombre de usuario inválido: {nombre_usuario!r}")
         self._id = id
-        self.__nombre_usuario = nombre_usuario  # NOSONAR: se lee al guardar y autenticar, Unidad 3
+        self.__nombre_usuario = nombre_usuario
         self.__rol = rol
+        self.__intentos_fallidos = intentos_fallidos
+        self.__bloqueado_hasta = bloqueado_hasta
         if hash_clave is not None:
             self.__hash_clave = hash_clave
         else:
@@ -584,6 +600,78 @@ class Usuario:
 
     def tiene_permiso(self, modulo: str) -> bool:
         return modulo in self._PERMISOS.get(self.__rol, set())
+
+    # --- Persistencia y acceso ---------------------------------------
+
+    def guardar(self, solicitante: "Usuario | None" = None) -> int:
+        """C — INSERT. Sin solicitante solo entra la primera cuenta, y como ADMIN_RRHH."""
+        if self._id is not None:
+            raise ValueError(f"El usuario ya está guardado con id {self._id}")
+        if solicitante is not None:
+            autorizar(solicitante, "usuarios")
+        elif self.__rol is not Rol.ADMIN_RRHH:
+            raise PermissionError("La cuenta inicial debe ser ADMIN_RRHH")
+        # Sin sesión, el INSERT solo ocurre si la tabla está vacía: la
+        # comprobación y la escritura son una sola sentencia.
+        condicion = "" if solicitante else " WHERE NOT EXISTS (SELECT 1 FROM usuario)"
+        with conectar() as con:
+            cur = con.execute(
+                "INSERT INTO usuario (nombre_usuario, hash_clave, rol)"
+                " SELECT ?, ?, ?" + condicion,
+                (self.__nombre_usuario, self.__hash_clave, self.__rol.value))
+        if cur.rowcount != 1:
+            raise PermissionError("Ya existe una cuenta: inicie sesión para crear otra")
+        self._id = cur.lastrowid
+        return self._id
+
+    @classmethod
+    def buscar_por_nombre(cls, nombre_usuario: str) -> "Usuario | None":
+        """R — uno por nombre. Un nombre con formato inválido ni llega a la base."""
+        nombre_usuario = nombre_usuario.strip().lower()
+        if not PATRON_USUARIO.fullmatch(nombre_usuario):
+            return None
+        with conectar() as con:
+            fila = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM usuario WHERE nombre_usuario = ?",
+                (nombre_usuario,)).fetchone()
+        if fila is None:
+            return None
+        hasta = fila["bloqueado_hasta"]
+        return cls(fila["nombre_usuario"], "", Rol(fila["rol"]), id=fila["id"],
+                   hash_clave=fila["hash_clave"],
+                   intentos_fallidos=fila["intentos_fallidos"],
+                   bloqueado_hasta=hasta and datetime.fromisoformat(hasta))
+
+    @classmethod
+    def autenticar(cls, nombre_usuario: str, clave: str) -> "Usuario | None":
+        """El usuario si la clave es correcta y la cuenta no está bloqueada.
+
+        Siempre calcula un scrypt, exista o no la cuenta: si no, el tiempo
+        de respuesta revelaría qué nombres de usuario existen.
+        """
+        usuario = cls.buscar_por_nombre(nombre_usuario)
+        if usuario is None:
+            cls._hashear(clave, bytes(16))                  # señuelo: misma demora
+            return None
+        ahora = datetime.now()
+        bloqueada = (usuario.__bloqueado_hasta is not None
+                     and ahora < usuario.__bloqueado_hasta)
+        correcta = usuario.verificar_clave(clave)   # siempre: misma demora
+        if bloqueada:
+            return None
+        # ponytail: contador leído y escrito en dos pasos; basta con un solo
+        # usuario a la vez. Con acceso concurrente: UPDATE ... SET n = n + 1.
+        intentos = 0 if correcta else usuario.__intentos_fallidos + 1
+        hasta = None
+        if intentos >= cls.MAX_INTENTOS:
+            intentos, hasta = 0, ahora + cls.BLOQUEO
+        with conectar() as con:
+            con.execute(
+                "UPDATE usuario SET intentos_fallidos = ?, bloqueado_hasta = ?"
+                " WHERE id = ?",
+                (intentos, hasta and hasta.isoformat(), usuario._id))
+        usuario.__intentos_fallidos, usuario.__bloqueado_hasta = intentos, hasta
+        return usuario if correcta else None
 
 
 class Informe:
@@ -758,6 +846,45 @@ def _autoverificar() -> None:
         "gerente borrado que sigue en el cargo"
     assert not ana.eliminar(admin), "borrar dos veces no puede devolver éxito"
 
+    # --- Inicio de sesión y fuerza bruta (Unidad 3)
+    gerente = Usuario("c.rojas", "Clave-Rojas-2026", Rol.GERENTE)
+    assert _rechaza(lambda: gerente.guardar(), PermissionError), \
+        "cuenta inicial que no es ADMIN_RRHH"
+    assert not hay_usuarios()
+    assert admin.guardar() is not None, "alta inicial sin sesión"
+    assert hay_usuarios()
+    otro_admin = Usuario("intruso", "Clave-Intruso-2026", Rol.ADMIN_RRHH)
+    assert _rechaza(lambda: otro_admin.guardar(), PermissionError), \
+        "segunda cuenta sin sesión"
+    assert _rechaza(lambda: gerente.guardar(Usuario("otro.gerente", "", Rol.GERENTE,
+                                                    hash_clave="x")),
+                    PermissionError), "un gerente no crea cuentas"
+    assert gerente.guardar(admin)
+    assert _rechaza(lambda: gerente.guardar(admin)), "doble INSERT de usuario"
+    with conectar() as con:
+        guardado = con.execute("SELECT hash_clave FROM usuario"
+                               " WHERE nombre_usuario = 'c.rojas'").fetchone()[0]
+    assert "Clave-Rojas-2026" not in guardado and guardado.startswith("scrypt$")
+
+    sesion = Usuario.autenticar("  C.Rojas ", "Clave-Rojas-2026")
+    assert sesion is not None and sesion.tiene_permiso("informes"), "login válido"
+    assert not sesion.tiene_permiso("empleados"), "el rol viene de la base"
+    assert Usuario.autenticar("c.rojas", "otra") is None, "clave equivocada"
+    assert Usuario.autenticar("nadie", "Clave-Rojas-2026") is None, "inexistente"
+    assert Usuario.autenticar("", "") is None, "credenciales vacías"
+    assert Usuario.autenticar("c.rojas\x1b[2J", "x") is None, "nombre con escape"
+    assert Usuario.autenticar("c.rojas' OR '1'='1", "x") is None, "inyección"
+    for _ in range(Usuario.MAX_INTENTOS - 1):       # ya lleva 1 fallo
+        Usuario.autenticar("c.rojas", "equivocada")
+    assert Usuario.autenticar("c.rojas", "Clave-Rojas-2026") is None, \
+        "tras cinco fallos la cuenta se bloquea, aun con la clave correcta"
+    with conectar() as con:
+        con.execute("UPDATE usuario SET bloqueado_hasta = ?",
+                    ((datetime.now() - timedelta(seconds=1)).isoformat(),))
+    assert Usuario.autenticar("c.rojas", "Clave-Rojas-2026") is not None, \
+        "el bloqueo es temporal"
+    assert Usuario.buscar_por_nombre("c.rojas")._Usuario__intentos_fallidos == 0
+
     # --- El informe depende de la abstracción, no de cada clase concreta
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
                              admin).obtener_texto()
@@ -780,4 +907,5 @@ if __name__ == "__main__":
         usar_base(os.path.join(carpeta, "autoverificacion.db"))
         os.chdir(carpeta)
         _autoverificar()
-    print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento")
+    print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento"
+          " · inicio de sesión y bloqueo")
