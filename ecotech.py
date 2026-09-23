@@ -778,13 +778,13 @@ class Usuario:
                    empleado_id=fila["empleado_id"])
 
     @classmethod
-    def autenticar(cls, nombre_usuario: str, clave: str) -> "Usuario | None":
+    def autenticar(cls, nombre: str, clave: str) -> "Usuario | None":
         """El usuario si la clave es correcta y la cuenta no está bloqueada.
 
         Siempre calcula un scrypt, exista o no la cuenta: si no, el tiempo
         de respuesta revelaría qué nombres de usuario existen.
         """
-        usuario = cls.buscar_por_nombre(nombre_usuario)
+        usuario = cls.buscar_por_nombre(nombre)
         if usuario is None:
             cls._hashear(clave, bytes(16))                  # señuelo: misma demora
             return None

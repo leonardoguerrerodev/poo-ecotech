@@ -11,6 +11,7 @@
 | 4 | 15-sep-2026 | revisión de entradas y del código aportado por un compañero |
 | 5 | 15-sep-2026 | análisis de SonarCloud sobre el repositorio de GitHub (§2.10) |
 | 6 | 21-sep-2026 | **Unidad 3**: inicio de sesión, fuerza bruta, consumo de APIs, errores de red y mensajes de error (§2.11) |
+| 7 | 23-sep-2026 | contra la rúbrica (`RUBRICA.md`): proyectos y horas persistidos, vínculo Usuario → Empleado, permiso `tiempo`, robustez del login y demora medida (§2.12) |
 
 **Método:** ejecutar ataques concretos contra el código, no leerlo y opinar. Cada hallazgo trae su
 reproducción y se puede repetir delante del docente.
@@ -39,8 +40,9 @@ información sensible) y **3.1.3** (errores de red y códigos HTTP).
 | 2.9 | Limpieza de pantalla con `os.system` | 4 | Baja | **Corregido** |
 | 2.10 | SonarCloud: carácter bidireccional, regex super-lineal, complejidad y 13 más | 5 | Media | **Corregido** (uno anotado para la Unidad 3) |
 | 2.11 | Unidad 3: sin autenticación, permisos tardíos, mensajes que filtraban detalle, datos de la red sin validar | 6 | Grave | **Corregido** |
+| 2.12 | El login moría con un hash corrupto; proyectos y horas solo en memoria; el EMPLEADO administraba proyectos; dos mensajes con la ruta del archivo | 7 | Grave | **Corregido** |
 | 3.1 | `actualizar_contacto` no pide permiso | 1 y 6 | Decisión | **Cerrado en el menú** (pasada 6) |
-| 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | Se declara |
+| 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | **Resuelto** en la pasada 7: la lista ya no existe |
 | 3.3 | Datos de contacto en el resumen exportable | 1 | Observación | Se declara |
 | 3.4 | No existe autenticación | 2 y 6 | Grave | **Corregido** en la Unidad 3 (§2.11) |
 | 3.5 | Defectos latentes en `Usuario` | 2 | Observación | Parcial |
@@ -514,13 +516,16 @@ el módulo `empleados`, sin tocar la firma que fija el UML.
 
 | Rol | Puede | No puede |
 |---|---|---|
-| `ADMIN_RRHH` | todo, incluido crear usuarios y ver pagos en moneda extranjera | — |
-| `GERENTE` | leer; crear, renombrar y eliminar departamentos; clima; informe de dotación | contratar, asignar, editar o eliminar empleados, ver sueldos, pagos, crear usuarios |
-| `EMPLEADO` | leer y consultar el clima de una faena | todo lo que escribe, informes, pagos |
+| `ADMIN_RRHH` | todo, incluido crear usuarios, ver la planilla de un proyecto y registrar horas a nombre de cualquiera | — |
+| `GERENTE` | leer; departamentos; crear, asignar y eliminar proyectos; clima del proyecto; informe de dotación; registrar **sus** horas si su cuenta está vinculada | contratar, asignar, editar o eliminar empleados, ver sueldos, planilla, crear usuarios |
+| `EMPLEADO` | leer y registrar **sus propias** horas en proyectos donde participa | administrar proyectos, consultar el clima, informes, planilla, crear usuarios |
+
+> Tabla vigente desde la pasada 7 (23-sep-2026). Hasta entonces el `EMPLEADO` consultaba el clima con
+> el permiso `proyectos`, el mismo que administra proyectos: ver §2.12.
 
 **El consumo de APIs también está restringido por sesión y rol**: nadie llega al menú sin
-autenticarse, y el pago en moneda extranjera, que combina el sueldo con el tipo de cambio, exige
-el permiso de `empleados`.
+autenticarse; el clima exige `proyectos` y la planilla, que combina los sueldos con el tipo de
+cambio, exige `empleados`.
 
 #### La red: tiempo de espera, códigos HTTP y respuestas no confiables
 
@@ -564,6 +569,85 @@ error». Tres cambios en `main.py`:
 | Base de datos | `0600`; `.gitignore` excluye `*.db` y los `*.csv` exportados |
 | Llaves de API | no hay: ninguna de las dos APIs la exige. Si una la pidiera, iría en una variable de entorno o en `.env`, ya excluido por `.gitignore`, nunca en el código |
 
+### 2.12 Pasada 7: la rúbrica como lista de chequeo · Grave
+
+Séptima pasada, 23-sep-2026. Método: cruzar los 22 indicadores y los 66 miembros del diagrama con el
+código, línea por línea (`docs/RUBRICA.md`), y convertir cada brecha en una prueba antes de
+corregirla. Plan: `docs/planes/2026-09-23_auditoria-rubrica-por-etapas.md`.
+
+#### El login moría con un hash corrupto · Grave
+
+`iniciar_sesion()` corre fuera de `atender()`, y `main()` solo atrapa `sqlite3.Error`, `Cancelado`,
+`KeyboardInterrupt` y `EOFError`. Un `hash_clave` alterado en la base hace que `verificar_clave`
+lance `ValueError`, y una clave con un carácter no codificable (`\udcff`) lanza `UnicodeEncodeError`
+en `clave.encode()`: **en los dos casos el programa terminaba con traceback en la pantalla de login**.
+Reproducido con un guion sobre el código del 21-sep antes de corregir. Ahora `iniciar_sesion()`
+atrapa `ValueError` (padre de los dos) y responde lo mismo que a una clave mala.
+
+#### La demora del login, medida
+
+§2.11 prometía la misma demora para los tres rechazos, pero nunca se había medido. Veinte llamadas
+a `Usuario.autenticar` por caso, mediana con `time.perf_counter`:
+
+| Caso | Mediana |
+|---|---|
+| cuenta inexistente | 255,3 ms |
+| clave mala | 255,5 ms |
+| cuenta bloqueada | 255,6 ms |
+| clave correcta (referencia) | 263,6 ms |
+
+Diferencia entre los tres rechazos: **0,1 %**. El tiempo no revela si la cuenta existe ni si está
+bloqueada. La clave correcta tarda unos 8 ms más porque además escribe el contador en la base; no
+filtra nada, porque en ese caso el usuario ya entra.
+
+#### Proyectos y horas solo en memoria · Alta
+
+`Proyecto`, la asociación «participa en» y los registros de tiempo vivían en listas
+(`Proyecto.__empleados`, `Proyecto._registros`, `Empleado._proyectos`, `Empleado.__registros`). Las
+tablas `proyecto`, `empleado_proyecto` y `registro_tiempo` existían en el esquema y **ningún código
+las leía ni las escribía**: todo lo que se registraba se perdía al cerrar. Es el mismo defecto que
+§2.8 corrigió para Departamento ↔ Empleado, y se corrige igual: **las relaciones viven solo en la
+base**, y las reglas que cruzan tablas (el empleado participa en el proyecto, y entonces se inserta
+la hora) van en un mismo `with conectar()`. Borrar un proyecto con horas imputadas se rechaza antes
+del `DELETE`: esa historia no se borra.
+
+#### El EMPLEADO administraba proyectos · Media
+
+El permiso `proyectos` servía a la vez para consultar el clima y para administrar proyectos, y el
+`EMPLEADO` lo tenía. Ahora hay un módulo `tiempo` para registrar horas, y `proyectos` queda para
+administrar. El `EMPLEADO` solo tiene `tiempo`, y **solo sobre su propio empleado**: su cuenta está
+vinculada a él por `usuario.empleado_id` (la asociación «identifica a» del diagrama, que existía en
+el esquema sin código). Una cuenta `EMPLEADO` sin empleado no se puede crear.
+
+Consecuencia declarada: la clave foránea es `ON DELETE CASCADE`, así que **borrar un empleado borra
+su cuenta**. Es lo buscado: una cuenta que identifica a alguien que ya no está no debe seguir
+entrando.
+
+#### Dos mensajes con la ruta del archivo · Baja
+
+`crear_tablas()` e `Informe.exportar()` imprimían el texto de un `OSError`, que trae la ruta absoluta
+(`[Errno 13] Permission denied: '/home/…/ecotech.db'`). Es la misma fuga que §2.11 cerró en
+`main.py`; se escapó porque estaba en `ecotech.py`. Ahora los dos dan un mensaje fijo.
+
+#### El diagrama y el código, comparados por un programa
+
+La correspondencia UML ↔ código se revisaba leyendo. En esta pasada la comprueba un script que
+extrae los 68 miembros de `modelo_u3.drawio` y busca cada uno en su clase, con su visibilidad y su
+lista de parámetros. Encontró una diferencia que la lectura había dejado pasar:
+`autenticar(nombre, clave)` en el diagrama y `nombre_usuario` en el código. Corregida en el código;
+hoy son 68 de 68 (`RUBRICA.md`, Tabla 2).
+
+#### Cómo se comprobó que las pruebas nuevas prueban algo
+
+Se rompieron a propósito cinco reglas, una por vez, en una copia de `ecotech.py` (sin comprobar la
+asignación, sin comprobar que las horas son propias, borrar un proyecto con horas, dar `proyectos` al
+`EMPLEADO`, cuenta `EMPLEADO` sin empleado). **La autoverificación falló las cinco veces.** En una,
+falló por el motivo equivocado: la prueba de «solo sus propias horas» usaba un empleado que ni
+siquiera participaba en el proyecto, así que la frenaba otra regla. Se corrigió para que el permiso
+fuera la única barrera, y la mutación volvió a fallar, ahora en el `assert` correcto. La mutación
+«borrar un proyecto con horas» la detiene además la clave foránea: son dos capas, y el `ValueError`
+existe para dar un mensaje claro antes de llegar a la base.
+
 ## 3. Decisiones declaradas
 
 ### 3.1 `actualizar_contacto` no pide permiso
@@ -584,6 +668,10 @@ Lleva un guion bajo porque lo escribe `Proyecto`. Se puede saltar la regla con
 lo que dice la convención (interno al módulo), y hacerlo privado obligaría a inventar métodos que el
 UML no tiene. Donde se pudo cerrar sin inventar métodos, se cerró: la relación con `Departamento` ya
 no tiene lista en memoria (§2.8). Sigue vigente solo porque `Proyecto` vive en memoria.
+
+> **Resuelto el 23-sep-2026 (pasada 7, §2.12):** `Proyecto` se persiste y la relación vive en la
+> tabla `empleado_proyecto`. `Empleado._proyectos` ya no existe, así que no hay nada que modificar
+> desde fuera.
 
 ### 3.3 Datos de contacto en el resumen exportable
 
@@ -651,9 +739,11 @@ python3 main.py        # la primera vez pide crear la cuenta de administrador
 ls -l ecotech.db       # tiene que decir -rw-------
 ```
 
-La autoverificación incluye los casos de las cinco pasadas: rechazos del dominio y de entradas,
-credenciales y formato del hash, siete escrituras sin permiso, CRUD, relación leída desde otra
-instancia, permisos del archivo y celdas del CSV. **Si alguien afloja una guarda, un `assert` se cae.**
+La autoverificación incluye los casos de las siete pasadas: rechazos del dominio y de entradas,
+credenciales y formato del hash, escrituras sin permiso, CRUD de departamentos, empleados y
+proyectos, relaciones leídas desde otra instancia, horas propias y ajenas, cascadas al borrar,
+login y bloqueo, permisos del archivo y celdas del CSV. **Si alguien afloja una guarda, un `assert`
+se cae**: la pasada 7 lo comprobó rompiendo cinco reglas a propósito (§2.12).
 
 Los espejos comentados (carpeta local `comentado/`, fuera del repositorio desde el 15-sep-2026)
 tienen que seguir siendo el mismo código:

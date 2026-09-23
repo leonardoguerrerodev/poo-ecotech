@@ -1,9 +1,10 @@
 # EcoTech Solutions — gestión de empleados
 
-Programa de terminal en Python para gestionar empleados y departamentos de la empresa EcoTech.
-Lleva a código el diagrama de clases UML de la asignatura *Programación Orientada a Objeto Seguro*,
-guarda los datos en una base SQLite, pide inicio de sesión y consulta dos servicios externos: el
-**clima** de la ciudad de una faena y el **tipo de cambio** del día para pagar en moneda extranjera.
+Programa de terminal en Python para gestionar empleados, departamentos y proyectos de la empresa
+EcoTech. Lleva a código el diagrama de clases UML de la asignatura *Programación Orientada a Objeto
+Seguro*, guarda los datos en una base SQLite, pide inicio de sesión y consulta dos servicios
+externos para cada proyecto: el **clima** de la ciudad donde se ejecuta y el **tipo de cambio** del
+día, para pagar al equipo en la moneda de ese país.
 
 ## Cómo ejecutarlo
 
@@ -17,11 +18,13 @@ python3 servicios.py              # autoverificación de las APIs, sin conectars
 ```
 
 **La primera vez** el programa pide crear la cuenta de administrador (RRHH); después pide usuario y
-clave. En el menú, la opción **1** carga datos de ejemplo y la **14** crea cuentas de gerente o de
-empleado para probar los permisos. Escribir **`x`** en cualquier dato cancela la acción sin guardar.
+clave. En el menú, la opción **1** carga datos de ejemplo (dos departamentos, tres empleados y dos
+proyectos: uno en Valparaíso pagado en pesos y otro en Madrid pagado en euros) y la **14** crea
+cuentas de gerente o de empleado para probar los permisos; una cuenta de empleado queda vinculada a
+su ficha. Escribir **`x`** en cualquier dato cancela la acción sin guardar.
 
 Las APIs son públicas y **no piden llave**: [Open-Meteo](https://open-meteo.com) para el clima y
-[mindicador.cl](https://mindicador.cl) para el dólar, el euro y la UF.
+[mindicador.cl](https://mindicador.cl) para el dólar y el euro.
 
 ## Qué hay en el repositorio
 
@@ -32,8 +35,9 @@ Las APIs son públicas y **no piden llave**: [Open-Meteo](https://open-meteo.com
 | `main.py` | El menú de terminal. No tiene ni una línea de SQL ni de HTTP: solo llama a las clases |
 | `requirements.txt` | La única dependencia externa, `requests` |
 | `diagramas/` | El diagrama vigente, `modelo_u3.drawio`; el de la Unidad 2 (`modelo_u2.drawio`, con sus imágenes) y el de la Unidad 1 (`modelo_final.drawio`) |
-| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en seis pasadas: lo que encontramos y cómo lo corregimos |
+| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en siete pasadas: lo que encontramos y cómo lo corregimos |
 | `docs/ANALISIS_IA.md` | Qué propuso la IA, qué errores y vulnerabilidades le encontramos y qué hicimos con cada fragmento |
+| `docs/RUBRICA.md` | Los 22 indicadores de la rúbrica, cada uno con dónde está su evidencia, y el diagrama comparado con el código miembro por miembro |
 
 ### Por qué tres archivos
 
@@ -54,10 +58,9 @@ Las APIs son públicas y **no piden llave**: [Open-Meteo](https://open-meteo.com
 Cada caja del UML es una clase en `ecotech.py`, con los mismos atributos y en el mismo orden. La
 visibilidad se tradujo literal: privado (`-`) es `__atributo`, protegido (`#`) es `_atributo`.
 
-Al arrancar se crean las seis tablas del modelo. **El CRUD completo es de `Empleado` y
-`Departamento`**, las dos clases relacionadas que pide la evaluación (ver [El CRUD](#el-crud)), y
-`Usuario` se guarda y se lee para el inicio de sesión. Las tablas de proyectos y registros de tiempo
-quedan creadas, sin uso todavía.
+Al arrancar se crean las seis tablas del modelo, y **todas se usan**: `Empleado`, `Departamento` y
+`Proyecto` tienen CRUD (ver [El CRUD](#el-crud)), los registros de horas se crean y se leen desde
+su empleado y su proyecto, y `Usuario` se guarda y se lee para el inicio de sesión.
 
 | Clase | Qué representa | En la base, en esta unidad |
 |---|---|---|
@@ -65,9 +68,9 @@ quedan creadas, sin uso todavía.
 | `Persona` | Abstracta. Nombre, dirección y contacto validados | sin tabla propia: sus datos van en la tabla `empleado` |
 | `Empleado` | Hereda de `Persona`. Contrato y salario | ✅ **con CRUD** · tabla `empleado` |
 | `Departamento` | Agrupa empleados y tiene gerente | ✅ **con CRUD** · tabla `departamento` |
-| `Proyecto` | Empleados asignados y horas consumidas | tabla creada, sin CRUD todavía: vive en memoria |
-| `RegistroTiempo` | Horas trabajadas en un proyecto | tabla creada, sin CRUD todavía: vive en memoria |
-| `Usuario` | Credencial, rol e intentos fallidos | ✅ tabla `usuario`: alta de cuentas e inicio de sesión |
+| `Proyecto` | Ciudad, moneda de pago, empleados asignados y horas consumidas | ✅ **con CRUD** · tablas `proyecto` y `empleado_proyecto` |
+| `RegistroTiempo` | Horas trabajadas en un proyecto | ✅ tabla `registro_tiempo`: se crea desde el empleado y se lee por proyecto |
+| `Usuario` | Credencial, rol, intentos fallidos y, si es empleado, su ficha | ✅ tabla `usuario`: alta de cuentas e inicio de sesión |
 | `Informe` | Resumen generado a partir de cualquier entidad | sin tabla: se calcula al vuelo y se exporta a CSV |
 | `ServicioExterno` | «boundary»: consulta el clima y el tipo de cambio | sin tabla: los datos se piden en el momento |
 
@@ -77,24 +80,26 @@ quedan creadas, sin uso todavía.
 |---|---|---|
 | Herencia `Empleado` → `Persona` | `class Empleado(Persona)` | los datos de persona van en la tabla `empleado` |
 | Agregación ◇ `Departamento`–`Empleado` | `agregar_empleado()`, `quitar_empleado()` | `ON DELETE SET NULL`: **borrar un departamento no borra a sus empleados** |
-| Composición ◆ `Empleado`–`RegistroTiempo` | `registrar_tiempo()` | `ON DELETE CASCADE`: los registros se van con el empleado |
+| Composición ◆ `Empleado`–`RegistroTiempo` | `registrar_tiempo()`: un registro de horas solo nace desde su empleado | `ON DELETE CASCADE`: los registros se van con el empleado |
+| Asociación «imputa a» `Proyecto`–`RegistroTiempo` | `horas_consumidas()`, `RegistroTiempo.listar(proyecto)` | `proyecto_id` sin cascada: **un proyecto con horas no se puede borrar** |
 | Asociación «gerente» | `asignar_gerente()` | `gerente_id` (solo alguien del mismo departamento) |
-| Muchos a muchos `Proyecto`–`Empleado` | `asignar_empleado()` actualiza los dos lados | tabla intermedia `empleado_proyecto` |
+| Muchos a muchos `Proyecto`–`Empleado` | `asignar_empleado()`, `desasignar_empleado()`, `listar_empleados()` | tabla intermedia `empleado_proyecto` |
+| Asociación «identifica a» `Usuario`–`Empleado` | `obtener_empleado()`: la cuenta de un empleado sabe quién es | `usuario.empleado_id`, único; borrar al empleado borra su cuenta |
 
-La relación entre departamentos y empleados **vive solo en la base**: no hay copias en memoria que
-se puedan desincronizar.
+**Todas las relaciones viven solo en la base**: no hay copias en memoria que se puedan
+desincronizar.
 
 ### El CRUD
 
-Se hace sobre **`Empleado` y `Departamento`**, las dos clases relacionadas que pide la evaluación.
-Las operaciones son métodos de cada clase:
+Se hace sobre **`Empleado` y `Departamento`**, las dos clases relacionadas que pide la evaluación,
+y desde la versión final también sobre **`Proyecto`**. Las operaciones son métodos de cada clase:
 
 | Operación | Método | Detalle |
 |---|---|---|
 | **C** · crear | `guardar()` | el id lo asigna la base; guardar dos veces se rechaza |
 | **R** · leer | `listar()`, `buscar()` | columnas con nombre, nunca `SELECT *`; buscar algo que no existe devuelve `None` |
-| **U** · actualizar | `renombrar()`, `actualizar_contacto()`, `agregar_empleado()` | valida primero y recién después escribe |
-| **D** · eliminar | `eliminar()` | pide permiso y confirma que de verdad borró algo |
+| **U** · actualizar | `renombrar()`, `actualizar_contacto()`, `agregar_empleado()`, `asignar_empleado()` | valida primero y recién después escribe |
+| **D** · eliminar | `eliminar()` | pide permiso y confirma que de verdad borró algo; un proyecto con horas registradas se rechaza |
 
 La conexión se abre y se cierra en cada operación (`conectar()`), con las claves foráneas activadas
 y la transacción confirmada o deshecha automáticamente.
@@ -113,8 +118,9 @@ Es el foco de la asignatura, así que la resumimos punto por punto:
   comparan en tiempo constante (`secrets.compare_digest`). El hash guarda su costo, así que se
   puede subir más adelante sin romper las claves existentes.
 - **Permisos por rol:** tres roles (`ADMIN_RRHH`, `GERENTE`, `EMPLEADO`). El menú revisa el permiso
-  **antes de pedir el primer dato**, y las clases lo vuelven a revisar al escribir. Un gerente ve el
-  informe de dotación pero no los sueldos ni los pagos; un empleado solo consulta.
+  **antes de pedir el primer dato**, y las clases lo vuelven a revisar al escribir. Un gerente
+  administra proyectos y ve el informe de dotación, pero no los sueldos ni la planilla; un empleado
+  consulta y registra **solo sus propias horas**, en proyectos donde participa.
 - **Servicios externos:** toda solicitud lleva **tiempo de espera** (3 s para conectar, 10 para
   leer), se revisa el **código HTTP** antes de leer la respuesta, y el JSON se valida campo por campo
   antes de usarlo. La ciudad y la moneda se validan antes de salir a internet (la moneda, contra una
@@ -143,9 +149,14 @@ Es el foco de la asignatura, así que la resumimos punto por punto:
   sesión y el bloqueo por intentos fallidos. Termina en `OK` o se detiene en la regla que falló.
 - **Autoverificación de las APIs** (`python3 servicios.py`): simula respuestas `200`, `404`, `429`,
   `500`, tiempo agotado, falta de red, JSON inválido y datos con otro formato, sin conectarse.
-- **Auditoría de seguridad en seis pasadas** (`docs/AUDITORIA.md`). Encontró, entre
-  otras cosas, que un número de 25 dígitos cerraba el programa y que borrar un empleado no pedía
-  permiso. Las dos cosas se corrigieron y hoy tienen su prueba.
+- **Auditoría de seguridad en siete pasadas** (`docs/AUDITORIA.md`). Encontró, entre
+  otras cosas, que un número de 25 dígitos cerraba el programa, que borrar un empleado no pedía
+  permiso y que un hash alterado en la base cerraba la pantalla de login. Todo se corrigió y hoy
+  tiene su prueba.
+- **Las pruebas se probaron**: se rompieron cinco reglas a propósito, una por vez, y la
+  autoverificación falló las cinco veces.
+- **El login tarda lo mismo** con una cuenta que no existe, con una clave mala y con una cuenta
+  bloqueada: medido, 255 ms en los tres casos.
 
 ## Uso de inteligencia artificial
 
@@ -170,13 +181,18 @@ descartaron**. Algunos ejemplos:
 - el permiso se revisaba después de pedir todos los datos, y un gerente podía dejar una carga a
   medias.
 
+En la auditoría final contra la rúbrica revisamos 12 decisiones más: **11 se modificaron y 1 se
+descartó**. Varias fueron errores de la propia IA sobre su trabajo anterior —un plan que no
+coincidía con el código, una cifra sumada de memoria— y los atrapó un control automático, no una
+relectura.
+
 El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
 
 ## Qué quedó fuera
 
 | Qué | Por qué |
 |---|---|
-| Guardar `Proyecto` y `RegistroTiempo` en la base | Sus tablas existen, pero el CRUD pedía dos clases relacionadas. El clima se consulta por ciudad, no por proyecto guardado |
+| Editar o borrar un registro de horas | Un registro de horas es traza: se crea y se lee, y se va solo cuando se va su empleado |
 | Cambiar la clave desde el menú | `cambiar_clave` existe en la clase, pero no se guarda en la base todavía |
 | Llave de API | Ninguna de las dos APIs la pide. Si una la pidiera, iría en una variable de entorno o en `.env` (ya excluido del repositorio), nunca en el código |
 
@@ -185,15 +201,16 @@ El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
 - No hay servidor web, así que XSS y cabeceras HTTP no aplican: los contextos que interpretan datos
   aquí son la terminal y la planilla, y los dos están cubiertos.
 - La base no está cifrada y está pensada para un solo usuario a la vez.
-- mindicador.cl publica el dólar y el euro observados en Chile, así que los pagos se calculan en
-  USD, EUR o UF. Otra moneda exigiría otra API.
+- mindicador.cl publica el dólar y el euro observados en Chile, así que un proyecto se paga en
+  CLP, USD o EUR. Otra moneda exigiría otra API.
 - La limpieza de pantalla usa códigos ANSI: la consola antigua de Windows (`cmd` sin modo VT) los
   muestra como texto. Windows Terminal, Linux y macOS funcionan bien.
 
 ## El menú
 
-Catorce opciones agrupadas por operación: **C** crear (1-3), **R** leer (4-5), **U** actualizar
-(6-8), **D** eliminar (9-10), **S** servicios externos (11-12) y **A** administración (13-14).
+Veinte opciones agrupadas por operación: **C** crear (1-3), **R** leer (4-5), **U** actualizar
+(6-8), **D** eliminar (9-10), **S** servicios externos (11-12), **A** administración (13-14) y
+**P** proyectos (15-20).
 Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a aparecer.
 
 ```
@@ -211,21 +228,27 @@ Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a apar
     5. Empleados                 10. Empleado
 
    S — SERVICIOS EXTERNOS        A — ADMINISTRACIÓN
-   11. Clima para faena          13. Informe de dotación
-   12. Pago en moneda extranjera 14. Crear usuario
+   11. Clima del proyecto        13. Informe de dotación
+   12. Planilla en su moneda     14. Crear usuario
+
+   P — PROYECTOS
+   15. Crear proyecto            18. Quitar empleado
+   16. Proyectos                 19. Registrar horas
+   17. Asignar empleado          20. Eliminar proyecto
 
    Escriba "x" para cancelar la acción en curso   ·   0. salir
 ==================================================================
 
    Opción: 11
-   Ciudad de la faena: Valparaíso
-   Valparaíso, Chile: despejado, 18.6 °C, humedad 55 %, viento 24.7 km/h.
+   Id del proyecto: 2
+   Madrid, España: nublado, 27.1 °C, humedad 20 %, viento 0.8 km/h.
    Condiciones aptas para trabajo en terreno.
 
    Opción: 12
-   Id del empleado: 1
-   Moneda (USD, EUR, UF): usd
-   Juanita Bravo Sepúlveda: 1,450,000 CLP = 1,512.91 USD  (1 USD = 958.42 CLP hoy)
+   Id del proyecto: 2
+   Planilla en EUR  (1 EUR = 1,081.49 CLP hoy)
+   Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
+   Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR
 ```
 
 <details>

@@ -1,7 +1,7 @@
 # Análisis del código generado con IA
 
 **Caso EcoTech Solutions · Evaluación Sumativa 2, Unidades 2 y 3 · TI3V21**
-Criterios 2.1.5 (secciones 1 a 3) y 3.1.4 (secciones 4 y 5)
+Criterios 2.1.5 (secciones 1 a 3) y 3.1.4 (secciones 4 a 6)
 
 **Herramienta usada:** Claude (Anthropic), a través de Claude Code en el editor.
 **Modo de uso:** iterativo. Cada fragmento se pidió con el contexto puesto —la clase, la tabla y las
@@ -143,3 +143,46 @@ mostró un sesgo nuevo, que se suma a los cinco de la sección 3:
 Y una lección que vale para las dos unidades: **los datos que vienen de afuera se validan igual,
 vengan del teclado o de la red** (filas 28 y 29). La autenticación protege quién entra; la
 validación protege lo que entra.
+
+---
+
+## 6. Auditoría contra la rúbrica — 23-sep-2026
+
+**Herramienta usada:** Claude (Anthropic), modelo Opus 5.5, a través de Claude Code. La IA auditó el
+código contra la rúbrica y ejecutó el plan `docs/planes/2026-09-23_auditoria-rubrica-por-etapas.md`
+por etapas: después de cada una, un control mecánico (la autoverificación en `OK`, un recuento con
+script o un render del diagrama) antes de pasar a la siguiente. **Cada fila ocurrió en esa sesión**
+y se registró al terminarla.
+
+**Cómo se probó lo generado:** la autoverificación de `ecotech.py`, ampliada con proyectos, horas y
+cuentas vinculadas; **cinco pruebas de mutación** (romper una regla a propósito y confirmar que la
+autoverificación falla); una sesión completa del menú con red real y otra con la red caída
+(`SALIDA_TERMINAL.md` §5); y la medición de la demora del login (`AUDITORIA.md` §2.12).
+
+| # | Aspecto revisado | Problema detectado | Tipo | Decisión | Fundamento técnico |
+|---|---|---|---|---|---|
+| 44 | El plan de la auditoría, escrito por la IA el 21-sep | Contrastado con el código antes de ejecutarlo, tenía cuatro hechos falsos o incompletos: proponía agregar la columna `usuario.empleado_id`, que **ya existía** (con un `ON DELETE CASCADE` que nadie había declarado); no preveía cómo leer horas con decimales; el `UNIQUE` de esa columna habría caído en el mensaje «Ese correo ya está registrado»; y mandaba corregir en `DEFENSA_ORAL.md` dos frases que ya estaban corregidas | Error | **Modificar** | Un plan que otra sesión ejecuta sin verificar convierte cada suposición en código. Se rehízo por etapas, con cada hecho verificado contra `archivo:línea` |
+| 45 | Conteo de los miembros del diagrama para la matriz de la rúbrica | La IA sumó **68** a mano y lo escribió en la matriz; un script que extrae las celdas del XML dio **66** | Error | **Descartar** el conteo manual | Toda cifra de `RUBRICA.md` sale ahora de un script. El error venía de atribuir 8 filas a `Proyecto` y a `RegistroTiempo`, que tienen 7 |
+| 46 | Getters `obtener_ciudad()` y `obtener_moneda()` | La IA propuso agregarlos al código **sin** ponerlos en el diagrama, por ser «lectura trivial» | Coherencia | **Modificar** | Contradice la regla del proyecto: ningún método fuera del UML salvo el CRUD. Van al diagrama. Es el mismo criterio de las filas 9 y 41, aplicado al revés: allí se descartaron porque el menú no los necesitaba; aquí el menú sí los necesita |
+| 47 | `Proyecto` en el diagrama | Al sumar cinco filas y partir dos métodos en dos líneas, la caja creció 168 px y **atravesaba el borde del marco «Módulo Dominio»** | Error | **Modificar** | Detectado **renderizando**, como la fila 42. Se agrandó el marco, se bajaron 132 px los módulos Informes y Servicios externos y 117 px el de Seguridad, y las flechas con `exitY` relativo se recalcularon para el mismo punto absoluto (y = 479) |
+| 48 | Prueba «un EMPLEADO solo registra sus propias horas» | Pasaba, pero **por el motivo equivocado**: el otro empleado ni siquiera participaba en el proyecto, así que lo frenaba la regla de asignación y no la de permiso | Error | **Modificar** | Lo destapó una **prueba de mutación**: al quitar la regla de permiso, la autoverificación falló con un error que no era el esperado. Se asigna al otro empleado antes de la prueba, para que el permiso sea la única barrera. Es el mismo patrón de la fila 38 |
+| 49 | `proyecto = empleado and buscar_proyecto()` | Encadenar con `and` para ahorrar un `if` | Coherencia | **Modificar** | Hace lo correcto, pero hay que detenerse a descifrarlo. Se reemplazó por el `return` temprano que ya usa `asignar_a_departamento`: lo que se lee igual en todo el archivo se revisa más rápido |
+| 50 | Planilla del proyecto | `valor` solo se asignaba en la rama de moneda extranjera y se usaba en otra rama con la misma condición | Coherencia | **Modificar** | Correcto hoy, pero un analizador lo marca como posible variable sin asignar, y un cambio en una de las dos condiciones la volvería real. `valor = 1.0` en la rama CLP |
+| 51 | Mensaje al asignar a un proyecto | «Camila Reyes Ortiz quedó **asignado**…» | Coherencia | **Modificar** | El programa no sabe el género de nadie. Visto en la sesión real; ahora dice «ahora participa en el proyecto» |
+| 52 | Guion de la sesión de prueba | En el caso «proyecto donde no participa», la IA escribió `x` como descripción: la acción se canceló y el caso no se probó | Error | **Modificar** | Una prueba que no llega al caso no prueba nada. Detectado al leer la salida, no al ver que «pasaba»: se cambió la entrada y apareció el rechazo esperado |
+| 53 | Commits de las etapas 5c y 5d | El plan los pedía separados | Alcance | **Modificar el plan** | Separados, el commit de 5c dejaba `registrar_tiempo` apuntando a una lista ya borrada: un punto de retorno roto. Se hicieron juntos y se declaró. Lo mismo con las sub-etapas del menú, que tocan las mismas líneas |
+| 54 | Arreglo del login con hash corrupto | La IA había dejado el hueco como «sospecha sin verificar» el 21-sep | Vulnerabilidad | **Modificar** | Se escribió primero la prueba y se corrió contra el código **anterior**: murió con traceback. Recién entonces se corrigió, y la misma prueba pasó. Sin ver la prueba fallar, no hay forma de saber que prueba el defecto |
+| 55 | Firma de `autenticar` en el diagrama y en el código | El diagrama decía `autenticar(nombre, clave)` y el código `autenticar(nombre_usuario, clave)`. La revisión a ojo del 21-sep no lo vio | Coherencia | **Modificar** | Lo encontró un **comparador automático** escrito en esta auditoría: lee el diagrama y el código y compara nombre, visibilidad y parámetros de los 68 miembros. Se corrigió el código, porque `nombreUsuario` no cabe en la fila de la caja y todas las llamadas pasan el argumento por posición. Tras el cambio: 68 de 68 |
+
+### Lo que agrega esta pasada
+
+Un séptimo sesgo, que se suma a los de las secciones 3 y 5:
+
+7. **Da por buenas sus propias cifras y sus propios planes.** Las filas 44, 45 y 46 son errores de la
+   IA sobre trabajo de la IA: un plan que no se contrastó con el código, una suma hecha de memoria y
+   una regla del proyecto olvidada al escribir el paso. Las tres, y la 55, las atrapó un control
+   mecánico, no una relectura. **Lo que la IA escribió ayer se verifica igual que lo que sugiere hoy.**
+
+Y una técnica nueva de prueba: **la mutación**. Que la autoverificación pase no dice nada si no se la
+ha visto fallar. Romper la regla a propósito y mirar **qué** `assert` cae (fila 48) es lo que
+distingue una prueba que protege la regla de una que pasa por casualidad.
