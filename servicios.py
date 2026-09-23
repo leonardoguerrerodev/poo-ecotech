@@ -41,6 +41,10 @@ PRIMERA_PRECIPITACION = 51
 VIENTO_MAXIMO_TERRENO = 40                  # km/h
 TIPO_CAMBIO_MAXIMO = 1_000_000             # CLP por unidad: más que eso es un dato roto
 
+# Rangos físicos posibles: un dato fuera de ellos es un dato roto (lámina 26).
+RANGOS_CLIMA = {"temperature_2m": (-90, 60), "relative_humidity_2m": (0, 100),
+                "weather_code": (0, 99), "wind_speed_10m": (0, 500)}
+
 FORMATO_INESPERADO = "El servicio externo respondió con un formato inesperado."
 CONFIGURACION_INVALIDA = ("La configuración del servicio externo no es válida: se exige "
                           "https y un tiempo de espera de 0 a 60 segundos. Revise el .env.")
@@ -49,6 +53,12 @@ MENSAJES_HTTP = {
     404: "El servicio externo no encontró el recurso pedido (404).",
     429: "Demasiadas consultas al servicio externo: espere un momento (429).",
 }
+
+
+def _en_rango(valor, minimo: float, maximo: float) -> bool:
+    """Número de verdad (no bool, no NaN ni infinito) y dentro del rango."""
+    return (not isinstance(valor, bool) and isinstance(valor, (int, float))
+            and math.isfinite(valor) and minimo <= valor <= maximo)
 
 
 def _cargar_env(ruta: Path = RUTA_ENV) -> None:
@@ -99,18 +109,19 @@ class ServicioExterno:
             raise ValueError(f"No se encontró la ciudad {ciudad!r}")
         try:
             lugar = lugares[0]
+            if not (_en_rango(lugar["latitude"], -90, 90)
+                    and _en_rango(lugar["longitude"], -180, 180)):
+                raise ServicioNoDisponible(FORMATO_INESPERADO)
             actual = self.__consultar(self.__url_clima, {
                 "latitude": lugar["latitude"], "longitude": lugar["longitude"],
                 "current": "temperature_2m,relative_humidity_2m,"
                            "weather_code,wind_speed_10m",
                 "timezone": "auto"})["current"]
-            medidas = {clave: actual[clave] for clave in (
-                "temperature_2m", "relative_humidity_2m", "weather_code",
-                "wind_speed_10m")}
+            medidas = {clave: actual[clave] for clave in RANGOS_CLIMA}
         except (KeyError, TypeError, IndexError):
             raise ServicioNoDisponible(FORMATO_INESPERADO) from None
-        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                   for v in medidas.values()):
+        if not all(_en_rango(medidas[clave], *rango)
+                   for clave, rango in RANGOS_CLIMA.items()):
             raise ServicioNoDisponible(FORMATO_INESPERADO)
 
         # El nombre viene de la red y se va a imprimir en la terminal: si
@@ -314,6 +325,22 @@ def _autoverificar() -> None:
                    clima(temperatura=None)):
         with responde(geo, actual):
             assert falla(lambda: configurado().obtener_clima(valpo)), actual
+    # --- Rango del clima: un dato imposible no se muestra ni decide «apto»
+    humedo = {"current": {**clima()["current"], "relative_humidity_2m": 150}}
+    for actual in (clima(temperatura=99), clima(codigo=-3), clima(codigo=100),
+                   clima(viento=-5), humedo):
+        with responde(geo, actual):
+            assert falla(lambda: configurado().obtener_clima(valpo)), actual
+    for latitud, longitud in ((91, 0), (0, 181)):
+        lejos = {"results": [{"name": "X", "country": "Y",
+                              "latitude": latitud, "longitude": longitud}]}
+        with responde(lejos):
+            assert falla(lambda: configurado().obtener_clima(valpo)), (latitud, longitud)
+    borde = {"current": {"temperature_2m": -90, "relative_humidity_2m": 100,
+                         "weather_code": 99, "wind_speed_10m": 500}}
+    with responde(geo, borde):
+        assert configurado().obtener_clima(valpo)["humedad"] == 100, "los bordes valen"
+
     # --- Configuración por entorno: falla cerrado, sin salir a la red ni tumbar nada
     for variables in ({"ECOTECH_URL_INDICADORES": URL_INDICADORES.replace("https", "http", 1)},
                       {"ECOTECH_TIEMPO_ESPERA": "abc"}, {"ECOTECH_TIEMPO_ESPERA": "0"},
