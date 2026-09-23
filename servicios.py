@@ -2,6 +2,8 @@
 
 Frontera del sistema con la red: el clima de una ciudad (Open-Meteo) y el
 tipo de cambio del día (mindicador.cl). Ninguna de las dos APIs pide llave.
+Las direcciones y el tiempo de espera se pueden cambiar por variables de
+entorno o con un archivo .env junto a este (ver .env.example).
 No importa nada de `ecotech.py`: es `main.py` quien une los datos de la base
 con los de la red, así que este archivo cambia solo cuando cambia una API.
 
@@ -10,7 +12,9 @@ Uso:
 """
 
 import math                                 # rechaza un tipo de cambio infinito o NaN
+import os                                   # configuración por variables de entorno
 import re                                   # patrón de nombres de ciudad
+from pathlib import Path                    # ubica el .env junto a este archivo
 
 import requests                             # HTTP: timeouts, códigos de estado y JSON
 
@@ -23,7 +27,11 @@ PATRON_CIUDAD = re.compile(r"[^\W\d_]+(?:[ '.-][^\W\d_]+)*")
 
 URL_GEOCODIFICACION = "https://geocoding-api.open-meteo.com/v1/search"
 URL_CLIMA = "https://api.open-meteo.com/v1/forecast"
-URL_INDICADOR = "https://mindicador.cl/api/{}"
+URL_INDICADORES = "https://mindicador.cl/api"
+TIEMPO_CONEXION = 3.05                      # segundos para conectar
+TIEMPO_LECTURA = 10                         # segundos para leer; ECOTECH_TIEMPO_ESPERA lo cambia
+TIEMPO_LECTURA_MAXIMO = 60
+RUTA_ENV = Path(__file__).with_name(".env")
 
 # Códigos WMO del clima: cada tramo termina en el código indicado.
 ESTADOS = ((0, "despejado"), (3, "nublado"), (48, "niebla"), (57, "llovizna"),
@@ -34,6 +42,8 @@ VIENTO_MAXIMO_TERRENO = 40                  # km/h
 TIPO_CAMBIO_MAXIMO = 1_000_000             # CLP por unidad: más que eso es un dato roto
 
 FORMATO_INESPERADO = "El servicio externo respondió con un formato inesperado."
+CONFIGURACION_INVALIDA = ("La configuración del servicio externo no es válida: se exige "
+                          "https y un tiempo de espera de 0 a 60 segundos. Revise el .env.")
 MENSAJES_HTTP = {
     400: "El servicio externo rechazó la consulta (400).",
     404: "El servicio externo no encontró el recurso pedido (404).",
@@ -41,24 +51,50 @@ MENSAJES_HTTP = {
 }
 
 
+def _cargar_env(ruta: Path = RUTA_ENV) -> None:
+    """Carga CLAVE=VALOR desde un .env, si existe. Las variables reales ganan."""
+    if not ruta.is_file():
+        return
+    for linea in ruta.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if linea and not linea.startswith("#") and "=" in linea:
+            clave, valor = linea.split("=", 1)
+            os.environ.setdefault(clave.strip(), valor.strip())
+
+
+_cargar_env()
+
+
 class ServicioExterno:
     """«boundary» — única puerta del sistema hacia la red."""
 
-    TIEMPO_ESPERA = (3.05, 10)              # segundos: conectar, leer
     MONEDAS = {"USD": "dolar", "EUR": "euro", "UF": "uf"}
+
+    def __init__(self):
+        entorno = os.environ.get
+        self.__url_geocodificacion = entorno("ECOTECH_URL_GEOCODIFICACION",
+                                             URL_GEOCODIFICACION)
+        self.__url_clima = entorno("ECOTECH_URL_CLIMA", URL_CLIMA)
+        self.__url_indicadores = entorno("ECOTECH_URL_INDICADORES",
+                                         URL_INDICADORES).rstrip("/")
+        try:
+            self.__tiempo_espera = float(entorno("ECOTECH_TIEMPO_ESPERA",
+                                                 TIEMPO_LECTURA))
+        except ValueError:
+            self.__tiempo_espera = None     # se rechaza al consultar: falla cerrado
 
     def obtener_clima(self, ciudad: str) -> dict:
         if not self._validar_ciudad(ciudad):
             raise ValueError("Ciudad inválida: de 2 a 80 letras, con espacios, "
                              "guion, punto o apóstrofo")
         ciudad = ciudad.strip()
-        lugares = self.__consultar(URL_GEOCODIFICACION, {
+        lugares = self.__consultar(self.__url_geocodificacion, {
             "name": ciudad, "count": 1, "language": "es"}).get("results")
         if not lugares:
             raise ValueError(f"No se encontró la ciudad {ciudad!r}")
         try:
             lugar = lugares[0]
-            actual = self.__consultar(URL_CLIMA, {
+            actual = self.__consultar(self.__url_clima, {
                 "latitude": lugar["latitude"], "longitude": lugar["longitude"],
                 "current": "temperature_2m,relative_humidity_2m,"
                            "weather_code,wind_speed_10m",
@@ -96,7 +132,8 @@ class ServicioExterno:
         if codigo is None:
             raise ValueError("Moneda no soportada. Use: "
                              + ", ".join(self.MONEDAS))
-        return self.__extraer_valor(self.__consultar(URL_INDICADOR.format(codigo)))
+        return self.__extraer_valor(
+            self.__consultar(f"{self.__url_indicadores}/{codigo}"))
 
     def __extraer_valor(self, datos: dict) -> float:
         """Valida la respuesta del indicador antes de usarla: presencia, tipo y rango."""
@@ -112,9 +149,12 @@ class ServicioExterno:
     def __consultar(self, url: str, params: dict | None = None) -> dict:
         """GET con tiempo de espera. Toda falla sale como ServicioNoDisponible,
         con un mensaje que no muestra la URL, la traza ni el detalle interno."""
+        if (not url.startswith("https://") or self.__tiempo_espera is None
+                or not 0 < self.__tiempo_espera <= TIEMPO_LECTURA_MAXIMO):
+            raise ServicioNoDisponible(CONFIGURACION_INVALIDA)
         try:
             respuesta = requests.get(url, params=params,
-                                     timeout=self.TIEMPO_ESPERA)
+                                     timeout=(TIEMPO_CONEXION, self.__tiempo_espera))
         except requests.Timeout:
             raise ServicioNoDisponible(
                 "El servicio externo no respondió a tiempo. Intente más tarde."
@@ -156,9 +196,16 @@ class ServicioExterno:
 
 
 def _autoverificar() -> None:
+    import tempfile
     from unittest import mock
 
-    servicio = ServicioExterno()
+    limpio = {k: v for k, v in os.environ.items() if not k.startswith("ECOTECH_")}
+
+    def configurado(**variables):
+        with mock.patch.dict(os.environ, {**limpio, **variables}, clear=True):
+            return ServicioExterno()
+
+    servicio = configurado()
     valpo = "Valparaíso"
     geo = {"results": [{"name": valpo, "country": "Chile",
                         "latitude": -33.04, "longitude": -71.63}]}
@@ -185,7 +232,7 @@ def _autoverificar() -> None:
         datos = servicio.obtener_clima("  Valparaíso ")
     assert datos["ciudad"] == "Valparaíso, Chile" and math.isclose(datos["temperatura"], 18.4)
     assert datos["estado"] == "despejado" and datos["apto_terreno"]
-    assert get.call_args.kwargs["timeout"] == ServicioExterno.TIEMPO_ESPERA, \
+    assert get.call_args.kwargs["timeout"] == (TIEMPO_CONEXION, TIEMPO_LECTURA), \
         "toda solicitud lleva tiempo de espera"
     assert all(llamada.args[0].startswith("https://")
                for llamada in get.call_args_list), "solo HTTPS"
@@ -249,6 +296,36 @@ def _autoverificar() -> None:
                    clima(temperatura=None)):
         with responde(geo, actual):
             assert falla(lambda: servicio.obtener_clima(valpo)), actual
+    # --- Configuración por entorno: falla cerrado, sin salir a la red ni tumbar nada
+    for variables in ({"ECOTECH_URL_INDICADORES": "http://mindicador.cl/api"},
+                      {"ECOTECH_TIEMPO_ESPERA": "abc"}, {"ECOTECH_TIEMPO_ESPERA": "0"},
+                      {"ECOTECH_TIEMPO_ESPERA": "61"}, {"ECOTECH_TIEMPO_ESPERA": "nan"}):
+        inseguro = configurado(**variables)
+        with mock.patch.object(requests, "get", side_effect=AssertionError(
+                "salió a la red con una configuración insegura")) as get:
+            assert falla(lambda s=inseguro: s.obtener_tipo_cambio("USD"),
+                         contiene="configuración"), variables
+            get.assert_not_called()
+    fuga = configurado(ECOTECH_URL_INDICADORES="http://interno.ecotech.cl")
+    assert not falla(lambda: fuga.obtener_tipo_cambio("USD"), contiene="interno"), \
+        "el mensaje no repite la dirección configurada"
+    propio = configurado(ECOTECH_URL_INDICADORES="https://espejo.ejemplo.cl/api/",
+                         ECOTECH_TIEMPO_ESPERA="4")
+    with responde({"serie": [{"valor": 958.42}]}) as get:
+        propio.obtener_tipo_cambio("usd")
+    assert get.call_args.args[0] == "https://espejo.ejemplo.cl/api/dolar"
+    assert math.isclose(get.call_args.kwargs["timeout"][1], 4)
+    with tempfile.TemporaryDirectory() as carpeta:
+        env = Path(carpeta) / ".env"
+        env.write_text("# comentario\nECOTECH_TIEMPO_ESPERA=7\n"
+                       "ECOTECH_URL_CLIMA=https://desde-env\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {**limpio, "ECOTECH_URL_CLIMA": "https://real"},
+                             clear=True):
+            _cargar_env(env)
+            assert os.environ["ECOTECH_TIEMPO_ESPERA"] == "7", ".env no cargado"
+            assert os.environ["ECOTECH_URL_CLIMA"] == "https://real", \
+                "una variable real del entorno le gana al .env"
+
     trampa = {"results": [{"name": "Valpo\x1b[2J", "country": "Chile",
                            "latitude": 0, "longitude": 0}]}
     with responde(trampa, clima()):
