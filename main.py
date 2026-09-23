@@ -1,8 +1,8 @@
 """EcoTech Solutions — menú de terminal.
 
-Pide inicio de sesión y ejecuta el ciclo CRUD sobre las dos clases
-relacionadas del modelo, `Departamento` y `Empleado`, más los servicios
-externos de la Unidad 3. No contiene ninguna sentencia SQL ni ninguna
+Pide inicio de sesión y ejecuta el ciclo CRUD sobre las clases del modelo:
+`Departamento` y `Empleado`, y `Proyecto` con sus horas, más los servicios
+externos de la Unidad 3 aplicados a cada proyecto. No contiene ninguna sentencia SQL ni ninguna
 solicitud HTTP: viven en `ecotech.py` y en `servicios.py`.
 
     python3 main.py
@@ -13,8 +13,9 @@ import sqlite3
 import time
 from datetime import date
 
-from ecotech import (Departamento, Empleado, Informe, Rol, Usuario, autorizar,
-                     crear_tablas, hay_usuarios)
+from ecotech import (MONEDAS_PROYECTO, Departamento, Empleado, Informe,
+                     Proyecto, Rol, Usuario, autorizar, crear_tablas,
+                     hay_usuarios)
 from servicios import ServicioExterno, ServicioNoDisponible
 
 MENU = """
@@ -32,8 +33,13 @@ MENU = """
     5. Empleados                 10. Empleado
 
    S — SERVICIOS EXTERNOS        A — ADMINISTRACIÓN
-   11. Clima para faena          13. Informe de dotación
-   12. Pago en moneda extranjera 14. Crear usuario
+   11. Clima del proyecto        13. Informe de dotación
+   12. Planilla en su moneda     14. Crear usuario
+
+   P — PROYECTOS
+   15. Crear proyecto            18. Quitar empleado
+   16. Proyectos                 19. Registrar horas
+   17. Asignar empleado          20. Eliminar proyecto
 
    Escriba "x" para cancelar la acción en curso   ·   0. salir
 =================================================================="""
@@ -44,14 +50,17 @@ MENU = """
 # base, lanza OverflowError al convertirlo, y eso mataría el programa.
 MAXIMO_ENTERO = 10**9
 
-PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10", "11", "12", "13", "14"}
+PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+               "15", "17", "18", "19", "20"}
 
 # Control de flujo: el permiso se revisa antes de pedir un solo dato. Los
 # métodos de las clases lo vuelven a revisar al escribir.
 PERMISO = {"1": "empleados", "2": "departamentos", "3": "empleados",
            "6": "departamentos", "7": "empleados", "8": "empleados",
            "9": "departamentos", "10": "empleados", "11": "proyectos",
-           "12": "empleados", "13": "informes", "14": "usuarios"}
+           "12": "empleados", "13": "informes", "14": "usuarios",
+           "15": "proyectos", "17": "proyectos", "18": "proyectos",
+           "19": "tiempo", "20": "proyectos"}
 
 INACTIVIDAD_MAXIMA = 10 * 60                # segundos sin actividad antes de cerrar la sesión
 ROLES = {"1": Rol.ADMIN_RRHH, "2": Rol.GERENTE, "3": Rol.EMPLEADO}
@@ -59,6 +68,7 @@ SERVICIO = ServicioExterno()
 
 PIDE_ID_DEPARTAMENTO = "   Id del departamento: "
 PIDE_ID_EMPLEADO = "   Id del empleado: "
+PIDE_ID_PROYECTO = "   Id del proyecto: "
 PIDE_USUARIO = "   Usuario (3 a 20: minúsculas, números, . _ -): "
 INTERRUMPIDO = "\n   Interrumpido. Hasta luego."
 CREDENCIALES_INVALIDAS = ("   ! Credenciales inválidas o cuenta bloqueada "
@@ -115,6 +125,18 @@ def pedir_fecha(mensaje: str) -> date:
             print("   ! Formato de fecha: AAAA-MM-DD, por ejemplo 2024-03-01.")
 
 
+def pedir_horas(mensaje: str) -> float:
+    """El rango (más de 0, hasta 24) lo valida RegistroTiempo."""
+    while True:
+        valor = leer(mensaje).replace(",", ".")
+        try:
+            if len(valor) <= 5:
+                return float(valor)
+        except ValueError:
+            pass
+        print("   ! Escriba las horas como número, por ejemplo 7.5.")
+
+
 def pedir_clave_nueva() -> str:
     """Sin eco en pantalla y dos veces. La política la valida Usuario."""
     while True:
@@ -155,6 +177,14 @@ def listar_empleados() -> None:
         print(f"   [{empleado.obtener_id()}] {empleado.obtener_resumen()}")
 
 
+def listar_proyectos() -> None:
+    proyectos = Proyecto.listar()
+    if not proyectos:
+        print("   (no hay proyectos)")
+    for proyecto in proyectos:
+        print(f"   [{proyecto.obtener_id()}] {proyecto.obtener_resumen()}")
+
+
 # --- Datos de ejemplo -------------------------------------------------
 
 DESARROLLO = "Desarrollo Sostenible"
@@ -172,10 +202,20 @@ PLANTILLA = [
      INVESTIGACION),
 ]
 
+# Un proyecto en Chile, pagado en pesos, y otro en España, pagado en euros.
+PROYECTOS = [
+    ("Parque Eólico Costero", "Montaje de aerogeneradores en el litoral",
+     date(2024, 2, 5), "Valparaíso", "CLP",
+     ("jbravo@ecotech.cl", "ifuentes@ecotech.cl")),
+    ("Planta Solar Castilla", "Asesoría en eficiencia energética",
+     date(2024, 5, 6), "Madrid", "EUR",
+     ("ifuentes@ecotech.cl", "creyes@ecotech.cl")),
+]
+
 
 def sembrar(solicitante: Usuario) -> None:
     """La C del ciclo, con datos que parecen reales."""
-    if Departamento.listar() or Empleado.listar():
+    if Departamento.listar() or Empleado.listar() or Proyecto.listar():
         print("   ! Ya hay datos cargados: los ejemplos solo se crean "
               "sobre una base vacía.")
         return
@@ -184,13 +224,20 @@ def sembrar(solicitante: Usuario) -> None:
     }
     for departamento in departamentos.values():
         departamento.guardar(solicitante)
+    empleados = {}
     for nombre, direccion, telefono, correo, contrato, salario, dep in PLANTILLA:
         empleado = Empleado(nombre, direccion, telefono, correo,
                             contrato, salario)
         empleado.guardar(solicitante)
         departamentos[dep].agregar_empleado(empleado, solicitante)
-    print(f"   Creados {len(departamentos)} departamentos "
-          f"y {len(PLANTILLA)} empleados.")
+        empleados[correo] = empleado
+    for nombre, descripcion, inicio, ciudad, moneda, correos in PROYECTOS:
+        proyecto = Proyecto(nombre, descripcion, inicio, ciudad, moneda)
+        proyecto.guardar(solicitante)
+        for correo in correos:
+            proyecto.asignar_empleado(empleados[correo], solicitante)
+    print(f"   Creados {len(departamentos)} departamentos, "
+          f"{len(PLANTILLA)} empleados y {len(PROYECTOS)} proyectos.")
 
 
 # --- Opciones que piden datos -----------------------------------------
@@ -259,8 +306,15 @@ def eliminar_empleado(solicitante: Usuario) -> None:
 
 # --- Servicios externos y administración (Unidad 3) --------------------
 
-def clima_para_faena(_solicitante: Usuario) -> None:
-    datos = SERVICIO.obtener_clima(pedir_texto("   Ciudad de la faena: "))
+def buscar_proyecto() -> Proyecto | None:
+    return buscar_o_avisar(Proyecto, pedir_entero(PIDE_ID_PROYECTO))
+
+
+def clima_del_proyecto(_solicitante: Usuario) -> None:
+    proyecto = buscar_proyecto()
+    if proyecto is None:
+        return
+    datos = SERVICIO.obtener_clima(proyecto.obtener_ciudad())
     print(f"   {datos['ciudad']}: {datos['estado']}, {datos['temperatura']} °C, "
           f"humedad {datos['humedad']} %, viento {datos['viento']} km/h.")
     if datos["apto_terreno"]:
@@ -269,21 +323,34 @@ def clima_para_faena(_solicitante: Usuario) -> None:
         print("   ! Riesgo para trabajo en terreno: considere reprogramar.")
 
 
-def pago_en_moneda_extranjera(solicitante: Usuario) -> None:
-    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
-    if empleado is None:
+def planilla_del_proyecto(solicitante: Usuario) -> None:
+    """Sueldos del equipo en la moneda del país donde se ejecuta el proyecto."""
+    proyecto = buscar_proyecto()
+    if proyecto is None:
         return
-    salario = empleado.obtener_salario(solicitante)
-    moneda = pedir_texto(f"   Moneda ({', '.join(ServicioExterno.MONEDAS)}): ")
-    valor = SERVICIO.obtener_tipo_cambio(moneda)
-    moneda = moneda.strip().upper()
-    print(f"   {empleado.obtener_nombre()}: {salario:,} CLP = "
-          f"{salario / valor:,.2f} {moneda}  (1 {moneda} = {valor:,.2f} CLP hoy)")
+    empleados = proyecto.listar_empleados()
+    if not empleados:
+        print("   ! El proyecto no tiene empleados asignados.")
+        return
+    moneda = proyecto.obtener_moneda()
+    if moneda == "CLP":
+        valor = 1.0                                     # CLP no consulta la API
+        print("   Planilla en CLP: el proyecto se paga en pesos, sin conversión.")
+    else:
+        valor = SERVICIO.obtener_tipo_cambio(moneda)    # una consulta por planilla
+        print(f"   Planilla en {moneda}  (1 {moneda} = {valor:,.2f} CLP hoy)")
+    for empleado in empleados:
+        salario = empleado.obtener_salario(solicitante)
+        linea = f"   {empleado.obtener_nombre()}: {salario:,} CLP"
+        if moneda != "CLP":
+            linea += f" = {salario / valor:,.2f} {moneda}"
+        print(linea)
 
 
 def informe_de_dotacion(solicitante: Usuario) -> None:
     informe = Informe.generar(
-        "Dotación EcoTech", [*Departamento.listar(), *Empleado.listar()],
+        "Dotación EcoTech",
+        [*Departamento.listar(), *Empleado.listar(), *Proyecto.listar()],
         solicitante)
     print("   " + informe.obtener_texto().replace("\n", "\n   "))
     if leer("   ¿Exportar a informe_dotacion.csv? (s/n): ").lower() == "s" \
@@ -296,8 +363,83 @@ def crear_usuario(solicitante: Usuario) -> None:
     rol = None
     while rol is None:
         rol = ROLES.get(leer("   Rol (1 ADMIN_RRHH · 2 GERENTE · 3 EMPLEADO): "))
-    usuario = Usuario(nombre, pedir_clave_nueva(), rol)
+    empleado_id = None
+    if rol is Rol.EMPLEADO or (rol is Rol.GERENTE and leer(
+            "   ¿Vincular a un empleado? (s/n): ").lower() == "s"):
+        empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+        if empleado is None:
+            return
+        empleado_id = empleado.obtener_id()
+    usuario = Usuario(nombre, pedir_clave_nueva(), rol, empleado_id=empleado_id)
     print(f"   Usuario creado con id {usuario.guardar(solicitante)}.")
+
+
+# --- Proyectos y horas -------------------------------------------------
+
+def crear_proyecto(solicitante: Usuario) -> None:
+    proyecto = Proyecto(pedir_texto("   Nombre: "),
+                        pedir_texto("   Descripción: "),
+                        pedir_fecha("   Inicio (AAAA-MM-DD): "),
+                        pedir_texto("   Ciudad donde se ejecuta: "),
+                        pedir_texto("   Moneda de pago "
+                                    f"({', '.join(MONEDAS_PROYECTO)}): "))
+    print(f"   Proyecto creado con id {proyecto.guardar(solicitante)}.")
+
+
+def asignar_a_proyecto(solicitante: Usuario) -> None:
+    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    if empleado is None:
+        return
+    proyecto = buscar_proyecto()
+    if proyecto is None:
+        return
+    if proyecto.asignar_empleado(empleado, solicitante):
+        print(f"   {empleado.obtener_nombre()} ahora participa en el proyecto "
+              f"{proyecto.obtener_id()}.")
+    else:
+        print(f"   ! {empleado.obtener_nombre()} ya estaba en ese proyecto.")
+
+
+def quitar_de_proyecto(solicitante: Usuario) -> None:
+    empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    if empleado is None:
+        return
+    proyecto = buscar_proyecto()
+    if proyecto is None:
+        return
+    if proyecto.desasignar_empleado(empleado, solicitante):
+        print(f"   {empleado.obtener_nombre()} salió del proyecto; "
+              "sus horas ya registradas se conservan.")
+    else:
+        print(f"   ! {empleado.obtener_nombre()} no estaba en ese proyecto.")
+
+
+def registrar_horas(solicitante: Usuario) -> None:
+    """RRHH registra a nombre de cualquiera; los demás, solo las suyas."""
+    if solicitante.tiene_permiso("empleados"):
+        empleado = buscar_o_avisar(Empleado, pedir_entero(PIDE_ID_EMPLEADO))
+    else:
+        empleado = solicitante.obtener_empleado()
+        if empleado is None:
+            print("   ! Su cuenta no está vinculada a un empleado.")
+        else:
+            print(f"   Registro a nombre de {empleado.obtener_nombre()}.")
+    if empleado is None:
+        return
+    proyecto = buscar_proyecto()
+    if proyecto is None:
+        return
+    registro = empleado.registrar_tiempo(
+        proyecto, pedir_fecha("   Fecha (AAAA-MM-DD): "),
+        pedir_horas("   Horas: "), pedir_texto("   Descripción: "), solicitante)
+    print(f"   Registradas {registro.obtener_horas():g} h. El proyecto suma "
+          f"{proyecto.horas_consumidas():.2f} h.")
+
+
+def eliminar_proyecto(solicitante: Usuario) -> None:
+    proyecto = buscar_proyecto()
+    if proyecto and proyecto.eliminar(solicitante):
+        print("   Proyecto eliminado, junto con sus asignaciones.")
 
 
 # --- Despacho ---------------------------------------------------------
@@ -309,8 +451,11 @@ ACCIONES = {
     "6": renombrar_departamento, "7": editar_contacto,                     # U
     "8": asignar_a_departamento,
     "9": eliminar_departamento, "10": eliminar_empleado,                   # D
-    "11": clima_para_faena, "12": pago_en_moneda_extranjera,               # S
+    "11": clima_del_proyecto, "12": planilla_del_proyecto,                 # S
     "13": informe_de_dotacion, "14": crear_usuario,                        # A
+    "15": crear_proyecto, "16": lambda _: listar_proyectos(),              # P
+    "17": asignar_a_proyecto, "18": quitar_de_proyecto,
+    "19": registrar_horas, "20": eliminar_proyecto,
 }
 
 
@@ -344,6 +489,8 @@ def atender(opcion: str, solicitante: Usuario) -> bool:
     except sqlite3.IntegrityError as error:
         if "usuario.nombre_usuario" in str(error):
             print("   ! Ese nombre de usuario ya existe. Use otro.")
+        elif "usuario.empleado_id" in str(error):
+            print("   ! Ese empleado ya tiene una cuenta.")
         elif error.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
             print("   ! Ese correo ya está registrado. Use otro.")
         else:
