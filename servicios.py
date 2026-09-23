@@ -12,6 +12,7 @@ Uso:
 """
 
 import math                                 # rechaza un tipo de cambio infinito o NaN
+from datetime import date                   # la fecha que informa la API, validada
 import os                                   # configuración por variables de entorno
 import re                                   # patrón de nombres de ciudad
 from pathlib import Path                    # ubica el .env junto a este archivo
@@ -143,14 +144,14 @@ class ServicioExterno:
         }
 
     def obtener_tipo_cambio(self, moneda: str) -> dict:
-        """Pesos chilenos por unidad de la moneda, en {"valor", "referencial"}."""
+        """Pesos chilenos por unidad, en {"valor", "fecha", "referencial"}."""
         codigo = self.MONEDAS.get(moneda.strip().upper())
         if codigo is None:
             raise ValueError("Moneda no soportada. Use: "
                              + ", ".join(self.MONEDAS))
         url = f"{self.__url_indicadores}/{codigo}"
-        return self.__con_respaldo(("cambio", codigo), lambda: {
-            "valor": self.__extraer_valor(self.__consultar(url))})
+        return self.__con_respaldo(("cambio", codigo),
+                                   lambda: self.__extraer_valor(self.__consultar(url)))
 
     def __con_respaldo(self, clave: tuple, consulta) -> dict:
         """Degradar antes que interrumpir: si el servicio falla, el último dato
@@ -164,16 +165,20 @@ class ServicioExterno:
         self.__ultimos[clave] = resultado
         return {**resultado, "referencial": False}
 
-    def __extraer_valor(self, datos: dict) -> float:
-        """Valida la respuesta del indicador antes de usarla: presencia, tipo y rango."""
+    def __extraer_valor(self, datos: dict) -> dict:
+        """Valida la respuesta del indicador antes de usarla: presencia, tipo,
+        rango y la fecha que informa la API (no la de hoy: un fin de semana
+        mindicador entrega el último día hábil)."""
         try:
             valor = datos["serie"][0]["valor"]
-        except (KeyError, TypeError, IndexError):
+            fecha = date.fromisoformat(datos["serie"][0]["fecha"][:10])
+        except (KeyError, TypeError, IndexError, ValueError):
             raise ServicioNoDisponible(FORMATO_INESPERADO) from None
         if (isinstance(valor, bool) or not isinstance(valor, (int, float))
-                or not math.isfinite(valor) or not 0 < valor <= TIPO_CAMBIO_MAXIMO):
+                or not math.isfinite(valor) or not 0 < valor <= TIPO_CAMBIO_MAXIMO
+                or fecha > date.today()):
             raise ServicioNoDisponible(FORMATO_INESPERADO)
-        return float(valor)
+        return {"valor": float(valor), "fecha": fecha}
 
     def __consultar(self, url: str, params: dict | None = None) -> dict:
         """GET con tiempo de espera. Toda falla sale como ServicioNoDisponible,
@@ -308,14 +313,20 @@ def _autoverificar() -> None:
         side_effect=requests.JSONDecodeError("x", "<html>", 0)))
     with mock.patch.object(requests, "get", return_value=no_json):
         assert falla(lambda: configurado().obtener_tipo_cambio("UF"), contiene="JSON")
-    for cuerpo in ([1, 2], {"serie": []}, {"serie": [{"valor": "958"}]},
-                   {"serie": [{"valor": 0}]}, {"serie": [{"valor": float("inf")}]},
-                   {"serie": [{"valor": True}]}, {"serie": [{"valor": -1}]},
-                   {"serie": [{"valor": TIPO_CAMBIO_MAXIMO + 1}]},
-                   {"serie": [{"valor": None}]}, {"serie": [{"valor": float("nan")}]}):
+    for cuerpo in ([1, 2], {"serie": []}, {"serie": [{"fecha": "2026-09-21", "valor": "958"}]},
+                   {"serie": [{"fecha": "2026-09-21", "valor": 0}]}, {"serie": [{"fecha": "2026-09-21", "valor": float("inf")}]},
+                   {"serie": [{"fecha": "2026-09-21", "valor": True}]}, {"serie": [{"fecha": "2026-09-21", "valor": -1}]},
+                   {"serie": [{"fecha": "2026-09-21", "valor": TIPO_CAMBIO_MAXIMO + 1}]},
+                   {"serie": [{"fecha": "2026-09-21", "valor": None}]}, {"serie": [{"fecha": "2026-09-21", "valor": float("nan")}]}):
         with responde(cuerpo):
             assert falla(lambda: configurado().obtener_tipo_cambio("UF")), cuerpo
-    with responde({"serie": [{"valor": TIPO_CAMBIO_MAXIMO}]}):
+    for fecha in (None, "ayer", "2026-13-40", "2099-01-01T03:00:00.000Z"):
+        with responde({"serie": [{"fecha": fecha, "valor": 958.42}]}):
+            assert falla(lambda: configurado().obtener_tipo_cambio("USD")), fecha
+    with responde({"serie": [{"fecha": "2026-09-19T03:00:00.000Z", "valor": 945.87}]}):
+        assert configurado().obtener_tipo_cambio("USD")["fecha"] == date(2026, 9, 19), \
+            "la fecha es la que informa la API"
+    with responde({"serie": [{"fecha": "2026-09-21", "valor": TIPO_CAMBIO_MAXIMO}]}):
         assert math.isclose(configurado().obtener_tipo_cambio("UF")["valor"], TIPO_CAMBIO_MAXIMO), \
             "el tope es inclusivo"
     with responde({"generationtime_ms": 0.2}):
@@ -356,7 +367,7 @@ def _autoverificar() -> None:
         "el mensaje no repite la dirección configurada"
     propio = configurado(ECOTECH_URL_INDICADORES="https://espejo.ejemplo.cl/api/",
                          ECOTECH_TIEMPO_ESPERA="4")
-    with responde({"serie": [{"valor": 958.42}]}) as get:
+    with responde({"serie": [{"fecha": "2026-09-21", "valor": 958.42}]}) as get:
         propio.obtener_tipo_cambio("usd")
     assert get.call_args.args[0] == "https://espejo.ejemplo.cl/api/dolar"
     assert math.isclose(get.call_args.kwargs["timeout"][1], 4)
@@ -376,7 +387,7 @@ def _autoverificar() -> None:
     with mock.patch.object(requests, "get", side_effect=requests.ConnectionError("x")):
         assert falla(lambda: memoria.obtener_tipo_cambio("USD"), contiene="conexión"), \
             "sin dato previo, el error se informa igual"
-    with responde({"serie": [{"valor": 958.42}]}):
+    with responde({"serie": [{"fecha": "2026-09-21", "valor": 958.42}]}):
         assert not memoria.obtener_tipo_cambio("USD")["referencial"]
     with mock.patch.object(requests, "get", side_effect=requests.ConnectionError("x")):
         respaldo = memoria.obtener_tipo_cambio("usd")

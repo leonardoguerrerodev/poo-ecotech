@@ -367,8 +367,8 @@ def tipo_cambio_del_dia(moneda: str, solicitante: Usuario) -> float:
         return guardado.obtener_valor()
     if cambio["referencial"]:
         print(AVISO_REFERENCIAL)
-    elif TipoCambio(moneda, date.today(), cambio["valor"]).guardar(solicitante):
-        print("   Tipo de cambio del día guardado en el historial.")
+    elif TipoCambio(moneda, cambio["fecha"], cambio["valor"]).guardar(solicitante):
+        print(f"   Tipo de cambio del {cambio['fecha']:%d-%m-%Y} guardado en el historial.")
     return cambio["valor"]
 
 
@@ -507,11 +507,11 @@ def guardar_tipos_de_cambio(solicitante: Usuario) -> None:
             print(f"   ! {moneda}: el servicio no respondió; un valor referencial "
                   "no se guarda.")
             descartados += 1
-        elif TipoCambio(moneda, date.today(), cambio["valor"]).guardar(solicitante):
+        elif TipoCambio(moneda, cambio["fecha"], cambio["valor"]).guardar(solicitante):
             guardados += 1
         else:
             repetidos += 1
-    print(f"   Guardados: {guardados} · ya registrados hoy: {repetidos} · "
+    print(f"   Guardados: {guardados} · ya registrados: {repetidos} · "
           f"descartados: {descartados}")
 
 

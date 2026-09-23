@@ -442,7 +442,7 @@
         <mxCell id="u3s7" parent="u3s" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="# validarCiudad(ciudad: str): bool" vertex="1">
           <mxGeometry height="24" width="560" y="248" as="geometry" />
         </mxCell>
-        <mxCell id="u3sm0" parent="u3s" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- extraerValor(datos: dict): float" vertex="1">
+        <mxCell id="u3sm0" parent="u3s" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- extraerValor(datos: dict): dict" vertex="1">
           <mxGeometry height="24" width="560" y="272" as="geometry" />
         </mxCell>
         <mxCell id="u3sm1" parent="u3s" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=6;spacingRight=6;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" value="- conRespaldo(clave: tuple, consulta): dict" vertex="1">
