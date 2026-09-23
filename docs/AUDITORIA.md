@@ -484,6 +484,21 @@ en SonarCloud.
 
 ---
 
+#### Segundo análisis, 23-sep-2026: Quality Gate en rojo
+
+El push de la pasada 7 marcó **C en Seguridad y C en Confiabilidad** sobre el código nuevo (se exige
+A). Dos causas, las dos en las autoverificaciones y corregidas el mismo día:
+
+- **S6389 · Seguridad:** `servicios.py` traía un U+202E **literal** en una prueba de entradas, el
+  mismo error que se corrigió en `ecotech.py` el 15-sep y que volvió con la Unidad 3. Ahora es el
+  escape `\u202e`: la prueba verifica lo mismo sin que el carácter esté escrito en el archivo.
+- **S1244 · Confiabilidad, 4 issues:** comparaciones `==` entre decimales (horas consumidas,
+  temperatura, tipo de cambio). Pasaron a `math.isclose`: dos decimales que deberían ser iguales
+  pueden diferir en el último bit.
+
+Quedan 10 issues de mantenibilidad que no bloquean el gate, casi todos textos repetidos dentro de
+las pruebas.
+
 ### 2.11 Unidad 3: autenticación, APIs y errores de red · Grave
 
 Sexta pasada, 21-sep-2026. Cierra el hallazgo más grave que quedaba abierto (§3.4) y revisa la

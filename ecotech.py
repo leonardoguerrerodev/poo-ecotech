@@ -15,6 +15,7 @@ Uso:
 
 import csv                                  # escribe el informe en CSV sin romper comas ni comillas
 import hashlib                              # scrypt: convierte la clave en un hash que no se revierte
+import math                                 # compara horas con tolerancia: nunca == entre decimales
 import os                                   # permisos 0600 de la base y rutas de la autoverificación
 import re                                   # patrones de correo, teléfono y usuario
 import secrets                              # sal aleatoria segura y comparación de hashes a tiempo fijo
@@ -1097,7 +1098,7 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: beto.registrar_tiempo(faena, dia, 1, "x", basico),
                     PermissionError), "un EMPLEADO cuyo empleado ya no existe"
     copia_faena = Proyecto.buscar(id_faena)
-    assert copia_faena.horas_consumidas() == 9.0
+    assert math.isclose(copia_faena.horas_consumidas(), 9.0)
     assert [r.obtener_horas() for r in RegistroTiempo.listar(faena)] == [7.5, 1.5]
     assert "Empleados: 1 | Horas consumidas: 9.00" in copia_faena.obtener_resumen()
     assert _rechaza(lambda: faena.eliminar(admin)), "proyecto con horas imputadas"
@@ -1105,7 +1106,8 @@ def _autoverificar() -> None:
     assert Proyecto.buscar(id_faena) is not None, "el rechazo no borró nada"
 
     assert beto.eliminar(admin)
-    assert faena.horas_consumidas() == 0.0 and faena.listar_empleados() == [], \
+    assert math.isclose(faena.horas_consumidas(), 0.0, abs_tol=1e-9) \
+        and faena.listar_empleados() == [], \
         "borrar el empleado arrastra horas y asignaciones"
     assert Usuario.buscar_por_nombre("b.soto") is None, "y su cuenta"
     assert faena.eliminar(admin) and Proyecto.buscar(id_faena) is None

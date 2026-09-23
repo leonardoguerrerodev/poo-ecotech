@@ -2,7 +2,7 @@
 
 > **Estado final al 23-sep-2026**, tras ejecutar el plan
 > `docs/planes/2026-09-23_auditoria-rubrica-por-etapas.md`. El punto de partida era
-> **12 ✅ · 10 ⚠️** en los indicadores y **57 ✅ · 5 ⚠️ · 4 ❌** en el diagrama (commit `9f2410a`, tag
+> **12 ✅ · 10 ⚠️** en los indicadores y **57 ✅ · 5 ⚠️ · 4 ❌** en el diagrama (commit `cf608ef`, tag
 > `u3-pre-auditoria`); el detalle de cada brecha y cómo se cerró está en `AUDITORIA.md` §2.12.
 >
 > Fuentes: `00_Ramo/Diapositivas/Rubrica_Unidad2.pdf` (22 indicadores, 60 puntos) y

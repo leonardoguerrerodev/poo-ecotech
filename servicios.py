@@ -178,7 +178,7 @@ def _autoverificar() -> None:
     # --- Respuestas correctas: se extrae solo lo que el sistema usa
     with responde(geo, clima()) as get:
         datos = servicio.obtener_clima("  Valparaíso ")
-    assert datos["ciudad"] == "Valparaíso, Chile" and datos["temperatura"] == 18.4
+    assert datos["ciudad"] == "Valparaíso, Chile" and math.isclose(datos["temperatura"], 18.4)
     assert datos["estado"] == "despejado" and datos["apto_terreno"]
     assert get.call_args.kwargs["timeout"] == ServicioExterno.TIEMPO_ESPERA, \
         "toda solicitud lleva tiempo de espera"
@@ -189,13 +189,13 @@ def _autoverificar() -> None:
     with responde(geo, clima(viento=55.0)):
         assert not servicio.obtener_clima("Valparaíso")["apto_terreno"], "viento"
     with responde({"serie": [{"fecha": "2026-09-21", "valor": 958.42}]}) as get:
-        assert servicio.obtener_tipo_cambio("usd") == 958.42
+        assert math.isclose(servicio.obtener_tipo_cambio("usd"), 958.42)
     assert get.call_args.args[0] == "https://mindicador.cl/api/dolar"
 
     # --- Entradas que no deben salir a la red
     with mock.patch.object(requests, "get") as get:
         for ciudad in ("", "   ", "a", "Santiago\x1b[2J", "x" * 500,
-                       "Santiago; DROP", "../../etc", "Santiago‮"):
+                       "Santiago; DROP", "../../etc", "Santiago\u202e"):
             assert falla(lambda: servicio.obtener_clima(ciudad), ValueError), ciudad
         for moneda in ("JPY", "../dolar", "", "dolar"):
             assert falla(lambda: servicio.obtener_tipo_cambio(moneda),
