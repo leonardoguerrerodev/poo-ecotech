@@ -12,6 +12,7 @@
 | 5 | 15-sep-2026 | análisis de SonarCloud sobre el repositorio de GitHub (§2.10) |
 | 6 | 21-sep-2026 | **Unidad 3**: inicio de sesión, fuerza bruta, consumo de APIs, errores de red y mensajes de error (§2.11) |
 | 7 | 23-sep-2026 | contra la rúbrica (`RUBRICA.md`): proyectos y horas persistidos, vínculo Usuario → Empleado, permiso `tiempo`, robustez del login y demora medida (§2.12) |
+| 8 | 23-sep-2026 | **integral de cierre** con el Método Auditoría del vault, el bloque 5 del docente y un agente independiente: 20 hallazgos, 4 Medios abiertos (§2.13) |
 
 **Método:** ejecutar ataques concretos contra el código, no leerlo y opinar. Cada hallazgo trae su
 reproducción y se puede repetir delante del docente.
@@ -41,6 +42,7 @@ información sensible) y **3.1.3** (errores de red y códigos HTTP).
 | 2.10 | SonarCloud: carácter bidireccional, regex super-lineal, complejidad y 13 más | 5 | Media | **Corregido** (uno anotado para la Unidad 3) |
 | 2.11 | Unidad 3: sin autenticación, permisos tardíos, mensajes que filtraban detalle, datos de la red sin validar | 6 | Grave | **Corregido** |
 | 2.12 | El login moría con un hash corrupto; proyectos y horas solo en memoria; el EMPLEADO administraba proyectos; dos mensajes con la ruta del archivo | 7 | Grave | **Corregido** |
+| 2.13 | Integral de cierre: sesión que no caduca en la pausa, clima sin rango, contacto visible para todos, dependencias con avisos, y 16 más | 8 | Media | **Abierto**: se corrige con un plan aparte |
 | 3.1 | `actualizar_contacto` no pide permiso | 1 y 6 | Decisión | **Cerrado en el menú** (pasada 6) |
 | 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | **Resuelto** en la pasada 7: la lista ya no existe |
 | 3.3 | Datos de contacto en el resumen exportable | 1 | Observación | Se declara |
@@ -668,6 +670,118 @@ siquiera participaba en el proyecto, así que la frenaba otra regla. Se corrigi�
 fuera la única barrera, y la mutación volvió a fallar, ahora en el `assert` correcto. La mutación
 «borrar un proyecto con horas» la detiene además la clave foránea: son dos capas, y el `ValueError`
 existe para dar un mensaje claro antes de llegar a la base.
+
+### 2.13 Pasada 8: auditoría integral de cierre · 4 Medios abiertos
+
+Octava pasada, 23-sep-2026, con el **Método Auditoría** del vault (ciclo de 7 pasos, severidad
+común, confianza CONFIRMADO/PLAUSIBLE) y el plan `docs/planes/2026-09-23_auditoria-integral-u3.md`.
+**Caja blanca, sistema propio.** Criterios: la rúbrica, la guía ES02, el bloque 5 del docente
+(`5_poo_servicios_rubensch.pdf`), OWASP Top 10:2025 y ASVS 5.0 nivel 1.
+
+**Independencia:** además de la autoauditoría, un **agente de contexto limpio** revisó los tres
+archivos contra OWASP y la lámina 31, sin leer antes esta auditoría (Método §1.2.5). **Cada hallazgo
+del agente se reprodujo en ejecución antes de entrar aquí**; los de origen «agente» marcados
+CONFIRMADO fueron reproducidos, no solo leídos.
+
+#### Resumen ejecutivo
+
+Ningún hallazgo Crítico ni Alto. La base de seguridad es sólida: SQL 100 % parametrizado, scrypt con
+señuelo y bloqueo persistido, autorización en dos capas (verificada con la matriz real de 3 roles × 25
+opciones), una sola puerta hacia la red que falla cerrada, y mensajes de error sin detalle interno.
+Quedan **4 Medios**: el cierre por inactividad se salta en la pausa, el clima no se valida por rango
+antes de decidir, cualquier rol ve el contacto de toda la plantilla, y las versiones fijadas de las
+dependencias tienen avisos conocidos (no explotables con este uso). Además hay 9 Bajos y 7 Informativos.
+
+#### Inventario y amenazas (fases 1 y 2)
+
+- **Datos personales tratados:** nombre, dirección, teléfono, correo y **sueldo** de empleados; nombre
+  de usuario y hash de su clave. Caso académico: no hay titulares reales.
+- **Límites de confianza:** teclado → `main.py` → `ecotech.py` → SQLite (archivo `0600`) ·
+  `servicios.py` → internet (Open-Meteo, mindicador.cl) · repositorio público en GitHub.
+
+| STRIDE | Amenaza concreta | Control existente | Resto |
+|---|---|---|---|
+| Suplantación | Entrar como otro | scrypt, bloqueo tras 5 fallos, demora igual | A8-01 (sesión que no caduca) |
+| Manipulación | Datos alterados en la base o en la respuesta de la API | reconstrucción por constructor, `CHECK`, validación de la respuesta | A8-02 (clima sin rango) |
+| Repudio | Negar una acción | — | A8-09 (sin registro de eventos) |
+| Divulgación | Sueldos y contactos a quien no corresponde | sueldo solo con `empleados`, `0600`, mensajes fijos | A8-03, A8-11 |
+| Denegación | Bloquear cuentas o colgar el menú | `timeout`, techos de enteros | A8-15 (bloqueo dirigido, aceptado) |
+| Elevación | Operar sin permiso | `autorizar()` en el menú y en el dominio | — (matriz real sin desvíos) |
+
+#### Hallazgos
+
+| ID | Sev. | Conf. | Origen | Evidencia | Impacto | Recomendación |
+|---|---|---|---|---|---|---|
+| A8-01 | Medio | CONFIRMADO | agente | `main.py:668-684`: `ultima_actividad` se reinicia **después** de la pausa | Terminal abandonada 2 h en «Presione Enter…» → la sesión sigue viva y ejecuta la opción siguiente (reproducido con reloj simulado; control: 2 h en «Opción:» sí la cierra) | Medir la inactividad también durante la pausa |
+| A8-02 | Medio | CONFIRMADO | agente | `servicios.py:95-132` (`__clima_de`) valida tipo pero no rango | Con humedad 150 % y viento −5 imprime «Condiciones aptas para trabajo en terreno» y recién después falla el guardado; la memoria de sesión lo serviría como referencial | Validar rango (y coordenadas) en `servicios.py` antes de decidir y de guardar en memoria, igual que `__extraer_valor` |
+| A8-03 | Medio | CONFIRMADO | agente | `main.py:182-187` (opción 5, sin permiso) + `ecotech.py:246-247` | Un EMPLEADO lista correo y teléfono de toda la plantilla (reproducido: 2 correos ajenos, 3 teléfonos). Mínimo privilegio y minimización, Ley 21.719 art. 14 quater | Exigir `empleados` en la opción 5, o un listado reducido (id y nombre) para los demás roles |
+| A8-04 | Medio | CONFIRMADO | propio | `requirements.txt` (fijado en la pasada anterior) | OSV.dev, 23-sep-2026: `requests` 2.32.5 (2 avisos), `urllib3` 2.6.3 (4) e `idna` 3.11 (2). Ninguno aplica al uso actual: `extract_zipped_paths`, API de streaming, `ProxyManager` de bajo nivel e `idna.encode` sobre hosts fijos | Subir a `requests` 2.34.2, `urllib3` 2.8.0, `idna` 3.20, `certifi` 2026.7.22 (`requests` ≥ 2.33 usa `charset-normalizer`, no `chardet`), probado en un entorno aislado |
+| A8-05 | Bajo | CONFIRMADO | agente | `servicios.py:54-62` (`_cargar_env`) | Un `.env` que no es UTF-8 hace que `import main` muera con `UnicodeDecodeError` (reproducido); además carga cualquier clave, incluidas `HTTPS_PROXY` o `REQUESTS_CA_BUNDLE` | Aceptar solo `ECOTECH_*` y atrapar el error de lectura con un mensaje fijo |
+| A8-06 | Bajo | PLAUSIBLE | agente | `servicios.py:174`: `requests.get` sigue redirecciones | Una redirección de `https` a `http` se seguiría sin revisar el esquema; la prueba del `302` no representa a `requests` real | `allow_redirects=False` (un 3xx cae en el `!= 200`) o revisar `respuesta.url` |
+| A8-07 | Bajo | CONFIRMADO | agente | `main.py:366` y `main.py:506`: `date.today()` | En fin de semana mindicador entrega el último día hábil y se guarda con la fecha de hoy | Guardar la fecha de la serie, validada |
+| A8-08 | Bajo | CONFIRMADO | agente | `main.py:566-575` usa el `Usuario` de la sesión | Si se borra la cuenta (o su empleado) desde otra terminal, la sesión abierta sigue con su rol | Recargar el usuario por id antes de cada acción |
+| A8-09 | Bajo | CONFIRMADO | ambos | ningún archivo usa `logging` | Sin registro de logins fallidos, bloqueos ni permisos denegados (OWASP A09; registro de incidentes de la Ley 21.719 art. 14 sexies) | Registro a archivo `0600`, sin claves ni datos personales |
+| A8-10 | Bajo | CONFIRMADO | agente | `ecotech.py:915-922` (`_validar_clave`) | Reglas de composición sin lista de claves comunes (ASVS 5.0 V6.2); sin cambio de clave persistido ni desbloqueo | Largo mínimo + lista de claves comunes; persistir `cambiar_clave` |
+| A8-11 | Bajo | CONFIRMADO | agente | `ecotech.py:1021-1045` (`exportar`) | `informe_dotacion.csv` queda con permisos por defecto (`0644`), con nombres, correos y teléfonos | `chmod 0600` tras escribir, como la base |
+| A8-12 | Bajo | CONFIRMADO | propio | `ecotech_new/Unidad2_bkp.zip` contiene `ecotech.db` (45 KB, 15-sep) | No viaja en git, pero **comprimir `ecotech_new/` para el AAI lo incluye** | Sacar los `*.zip` de la carpeta antes de comprimir |
+| A8-13 | Bajo | CONFIRMADO | propio | `main.py:119-127` (`pedir_entero`) | Quitar el techo no lo detecta ninguna prueba automática: solo lo contiene el `except Exception` final («Error inesperado (OverflowError)») | Una autoverificación mínima de `main.py` o del techo |
+| A8-14 | Info | PLAUSIBLE | agente | `servicios.py:174` | El tiempo de lectura es entre bytes y el cuerpo no tiene tope; solo alcanzable con una URL configurada hostil | Aceptar por escrito o `stream=True` con tope |
+| A8-15 | Info | CONFIRMADO | agente | `ecotech.py:976-1004` | Quien conozca un usuario puede bloquearlo 5 min, repetidamente | Riesgo aceptado: es el costo del bloqueo por cuenta |
+| A8-16 | Info | CONFIRMADO | agente | contador en dos pasos | No atómico; un solo proceso | Ya declarado en §4 |
+| A8-17 | Info | CONFIRMADO | agente | `Empleado.actualizar_contacto` | Sin permiso en el dominio; el comentario de `main.py` sobre «los métodos lo vuelven a revisar» no vale para la opción 7 | Ya declarado en §3.1 |
+| A8-18 | Info | CONFIRMADO | propio | listados de proyectos | N+1: 2 conexiones por proyecto; 1000 proyectos en 0,7 s | Aceptado a esta escala |
+| A8-19 | Info | CONFIRMADO | propio | GitHub | Repositorio público, `main` sin protección, un colaborador con `push` | Proteger `main`; **HUMANO:** confirmar 2FA de la cuenta |
+| A8-20 | Info | CONFIRMADO | propio | mensajes de validación | «Horas inválidas: inf» repite lo tecleado; no es sensible | — |
+
+#### Lo que está bien (con evidencia)
+
+- **Autorización:** la matriz real, cada rol por cada opción, coincide con la tabla de §2.11, y en
+  ningún caso se piden datos antes de negar (`docs/herramientas/e8_dinamicas.py`).
+- **Entradas:** 13 casos hostiles (escapes de terminal, bidi, 10 000 caracteres, enteros de 26 dígitos,
+  fechas imposibles, SQL en la moneda, `1e400`, `nan`) rechazados con mensaje y sin traza.
+- **Secretos:** el historial completo (32 commits) no contiene llaves ni tokens; solo las claves de
+  prueba de las autoverificaciones, sobre bases temporales. Lo publicado no incluye `.db`, `.env`,
+  `.csv`, `comentado/` ni PDF.
+- **Documentación usada al pie de la letra:** en un clon limpio del repositorio, los comandos del
+  README terminan en `OK`, `cp .env.example .env` funciona y el primer uso pide crear la cuenta de
+  administrador.
+- **Pruebas que prueban:** las mutaciones de `isprintable()`, `sin_formula()` y el techo de enteros se
+  detectan (el techo, por la segunda capa: A8-13).
+- **Credenciales:** ninguna en el código que se ejecuta; la cuenta de administrador se crea en el
+  primer uso.
+
+#### Privacidad (Ley 21.719, fase 3) — caso académico, sin titulares reales
+
+| Obligación | Estado | Evidencia |
+|---|---|---|
+| Minimización y mínimo privilegio | ⚠️ | sueldo protegido; contacto visible para todos los roles (A8-03) |
+| Seguridad del tratamiento (art. 14 quinquies) | ⚠️ | base `0600`, scrypt; CSV sin `0600` (A8-11) |
+| Supresión | ✅ / ⚠️ | borrar un empleado borra horas, asignaciones y cuenta; queda un respaldo con base en la carpeta (A8-12) |
+| Registro de incidentes (art. 14 sexies) | ⚠️ | sin registro de eventos (A8-09) |
+| Transferencia internacional | ✅ | a las APIs solo viajan un nombre de ciudad y un código de moneda |
+| Retención | Informativo | sin plazo definido: caso académico |
+
+#### Bloque 5 del docente, lámina por lámina
+
+| Lámina | Pide | Estado |
+|---|---|---|
+| 8 | `requirements.txt` con versión exacta | ✅ (con A8-04) |
+| 9, 11 | `timeout` y `params` | ✅ `servicios.py:167-204` |
+| 14-15 | Las cinco fallas y `try` de lo concreto a lo general | ✅ |
+| 16 | Degradar antes que interrumpir, avisando | ✅ memoria y base (`SALIDA_TERMINAL.md` §6.2-6.3) |
+| 20-21 | Clave fuera del código, `.env`, `.gitignore`, `.env.example` | ✅ (ninguna API pide llave) |
+| 22 | Cliente con estado privado | ✅ `ServicioExterno` |
+| 24 | Token en código, `http`, imprimir la respuesta entera | ✅ ninguno |
+| 25-26 | Validar la respuesta: tipo, claves, **rango** | ⚠️ tipo de cambio sí; clima sin rango (A8-02) |
+| 29-30 | Pedir, validar, guardar, informar (y contar descartados) | ✅ opciones 11, 12 y 21 |
+| 31 | Los cinco aspectos | ✅ salvo protocolo (A8-06) y uso de la respuesta del clima (A8-02), parciales |
+| 35 | Cliente, validación, `.env.example`, salida con fallo provocado, tabla de IA | ✅ los cinco |
+
+#### Límites de esta pasada
+
+No se probó en Windows. No se instalaron `bandit`, `pip-audit` ni `gitleaks`: la SCA se hizo contra
+la API de OSV.dev y el escaneo de secretos con expresiones regulares sobre `git log -p`. La 2FA de la
+cuenta de GitHub la confirma el dueño (A8-19).
 
 ## 3. Decisiones declaradas
 
