@@ -71,7 +71,6 @@ descrito completo en el `README.md`.
 | `main.py` | El menú de terminal: no contiene SQL ni HTTP |
 | `diagramas/EcoTech_UML_VIGENTE.drawio` | **El diagrama de clases vigente**, igual al código miembro por miembro; con su imagen en `EcoTech_UML_VIGENTE.png` (y versión oscura). Los diagramas de unidades anteriores están en `diagramas/historico/` |
 | `README.md` | Descripción completa: diseño, seguridad y menú |
-| `docs/RUBRICA.md` | Cada indicador de la rúbrica con el archivo y la línea donde está su evidencia |
 | `docs/ANALISIS_IA.md` | Uso de inteligencia artificial: qué se adoptó, modificó o descartó y por qué |
 | `docs/AUDITORIA.md` | Auditorías de seguridad del código, con cada hallazgo y su corrección |
 | `docs/SALIDA_TERMINAL.md` | Sesiones reales del programa, incluidos los fallos provocados |

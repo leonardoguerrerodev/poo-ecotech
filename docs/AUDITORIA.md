@@ -11,7 +11,7 @@
 | 4 | 15-sep-2026 | revisión de entradas y del código aportado por un compañero |
 | 5 | 15-sep-2026 | análisis de SonarCloud sobre el repositorio de GitHub (§2.10) |
 | 6 | 21-sep-2026 | **Unidad 3**: inicio de sesión, fuerza bruta, consumo de APIs, errores de red y mensajes de error (§2.11) |
-| 7 | 23-sep-2026 | contra la rúbrica (`RUBRICA.md`): proyectos y horas persistidos, vínculo Usuario → Empleado, permiso `tiempo`, robustez del login y demora medida (§2.12) |
+| 7 | 23-sep-2026 | contra la rúbrica (matriz interna del equipo): proyectos y horas persistidos, vínculo Usuario → Empleado, permiso `tiempo`, robustez del login y demora medida (§2.12) |
 | 8 | 23-sep-2026 | **integral de cierre** con el Método Auditoría del vault, el bloque 5 del docente y un agente independiente: 20 hallazgos, 4 Medios abiertos (§2.13) |
 
 **Método:** ejecutar ataques concretos contra el código, no leerlo y opinar. Cada hallazgo trae su
@@ -595,7 +595,7 @@ error». Tres cambios en `main.py`:
 ### 2.12 Pasada 7: la rúbrica como lista de chequeo · Grave
 
 Séptima pasada, 23-sep-2026. Método: cruzar los 22 indicadores y los 66 miembros del diagrama con el
-código, línea por línea (`docs/RUBRICA.md`), y convertir cada brecha en una prueba antes de
+código, línea por línea (una matriz interna del equipo), y convertir cada brecha en una prueba antes de
 corregirla. Plan: `docs/planes/2026-09-23_auditoria-rubrica-por-etapas.md`.
 
 #### El login moría con un hash corrupto · Grave
@@ -658,7 +658,7 @@ La correspondencia UML ↔ código se revisaba leyendo. En esta pasada la compru
 extrae los 68 miembros del diagrama vigente (`EcoTech_UML_VIGENTE.drawio`) y busca cada uno en su clase, con su visibilidad y su
 lista de parámetros. Encontró una diferencia que la lectura había dejado pasar:
 `autenticar(nombre, clave)` en el diagrama y `nombre_usuario` en el código. Corregida en el código;
-hoy son 68 de 68 (`RUBRICA.md`, Tabla 2).
+hoy son 68 de 68 (y 89 de 89 tras el cierre de la U3).
 
 #### Cómo se comprobó que las pruebas nuevas prueban algo
 
@@ -758,7 +758,7 @@ del diagrama.
 #### Lo que está bien (con evidencia)
 
 - **Autorización:** la matriz real, cada rol por cada opción, coincide con la tabla de §2.11, y en
-  ningún caso se piden datos antes de negar (`docs/herramientas/e8_dinamicas.py`).
+  ningún caso se piden datos antes de negar (guion de pruebas local del equipo).
 - **Entradas:** 13 casos hostiles (escapes de terminal, bidi, 10 000 caracteres, enteros de 26 dígitos,
   fechas imposibles, SQL en la moneda, `1e400`, `nan`) rechazados con mensaje y sin traza.
 - **Secretos:** el historial completo (32 commits) no contiene llaves ni tokens; solo las claves de

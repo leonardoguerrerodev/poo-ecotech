@@ -930,7 +930,7 @@ en el 2.
 
 ## 6. Unidad 3, cierre — historial de las APIs y fallos provocados
 
-Corridas del 23-sep-2026, regeneradas tras la corrección de la pasada 8, con el mismo guion de entradas (`docs/herramientas/driver.py`), sobre bases
+Corridas del 23-sep-2026, regeneradas tras la corrección de la pasada 8, con el mismo guion de entradas (un guion local del equipo que reemplaza `input` y `getpass`), sobre bases
 temporales. Son los **fallos provocados** que pide la lámina 35 del docente: la red se corta o se
 configura mal a propósito, y se muestra qué hace el sistema. Solo las líneas de cada acción.
 

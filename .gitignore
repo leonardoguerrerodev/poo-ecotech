@@ -1,13 +1,19 @@
+# Datos locales y respaldos: nunca al repositorio
 *.db
 *.zip
 *.csv
+.env
 .venv/
 __pycache__/
-.env
-comentado/
 
+# Material de trabajo del equipo, fuera de la entrega
+comentado/
+docs/pdf/
+docs/herramientas/
+docs/RUBRICA.md
+
+# De docs/ solo viajan estos tres
 docs/*
 !docs/AUDITORIA.md
 !docs/ANALISIS_IA.md
-!docs/RUBRICA.md
 !docs/SALIDA_TERMINAL.md
