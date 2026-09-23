@@ -155,7 +155,8 @@ def _autoverificar() -> None:
     from unittest import mock
 
     servicio = ServicioExterno()
-    geo = {"results": [{"name": "Valparaíso", "country": "Chile",
+    valpo = "Valparaíso"
+    geo = {"results": [{"name": valpo, "country": "Chile",
                         "latitude": -33.04, "longitude": -71.63}]}
 
     def clima(codigo=0, viento=10.0, temperatura=18.4):
@@ -185,9 +186,9 @@ def _autoverificar() -> None:
     assert all(llamada.args[0].startswith("https://")
                for llamada in get.call_args_list), "solo HTTPS"
     with responde(geo, clima(codigo=63)):
-        assert not servicio.obtener_clima("Valparaíso")["apto_terreno"], "lluvia"
+        assert not servicio.obtener_clima(valpo)["apto_terreno"], "lluvia"
     with responde(geo, clima(viento=55.0)):
-        assert not servicio.obtener_clima("Valparaíso")["apto_terreno"], "viento"
+        assert not servicio.obtener_clima(valpo)["apto_terreno"], "viento"
     with responde({"serie": [{"fecha": "2026-09-21", "valor": 958.42}]}) as get:
         assert math.isclose(servicio.obtener_tipo_cambio("usd"), 958.42)
     assert get.call_args.args[0] == "https://mindicador.cl/api/dolar"
@@ -196,9 +197,9 @@ def _autoverificar() -> None:
     with mock.patch.object(requests, "get") as get:
         for ciudad in ("", "   ", "a", "Santiago\x1b[2J", "x" * 500,
                        "Santiago; DROP", "../../etc", "Santiago\u202e"):
-            assert falla(lambda: servicio.obtener_clima(ciudad), ValueError), ciudad
+            assert falla(lambda c=ciudad: servicio.obtener_clima(c), ValueError), ciudad
         for moneda in ("JPY", "../dolar", "", "dolar"):
-            assert falla(lambda: servicio.obtener_tipo_cambio(moneda),
+            assert falla(lambda m=moneda: servicio.obtener_tipo_cambio(m),
                          ValueError), moneda
         get.assert_not_called()
     assert servicio._validar_ciudad("San Pedro de Atacama")
@@ -238,11 +239,11 @@ def _autoverificar() -> None:
     for actual in ({}, {"current": {"temperature_2m": "18"}},
                    clima(temperatura=None)):
         with responde(geo, actual):
-            assert falla(lambda: servicio.obtener_clima("Valparaíso")), actual
+            assert falla(lambda: servicio.obtener_clima(valpo)), actual
     trampa = {"results": [{"name": "Valpo\x1b[2J", "country": "Chile",
                            "latitude": 0, "longitude": 0}]}
     with responde(trampa, clima()):
-        assert servicio.obtener_clima("Valparaíso")["ciudad"] == "Valparaíso", \
+        assert servicio.obtener_clima(valpo)["ciudad"] == valpo, \
             "nombre con escape de terminal que venía de la red"
 
 

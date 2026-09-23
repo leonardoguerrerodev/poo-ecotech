@@ -684,8 +684,8 @@ class Usuario:
         self.__empleado_id = empleado_id
         self.__nombre_usuario = nombre_usuario
         self.__rol = rol
-        self.__intentos_fallidos = intentos_fallidos
-        self.__bloqueado_hasta = bloqueado_hasta
+        self.__intentos_fallidos = intentos_fallidos    # NOSONAR: se lee en autenticar()
+        self.__bloqueado_hasta = bloqueado_hasta        # NOSONAR: se lee en autenticar()
         if hash_clave is not None:
             self.__hash_clave = hash_clave
         else:
@@ -989,7 +989,8 @@ def _autoverificar() -> None:
     assert not ana.eliminar(admin), "borrar dos veces no puede devolver éxito"
 
     # --- Inicio de sesión y fuerza bruta (Unidad 3)
-    gerente = Usuario("c.rojas", "Clave-Rojas-2026", Rol.GERENTE)
+    rojas = "c.rojas"
+    gerente = Usuario(rojas, "Clave-Rojas-2026", Rol.GERENTE)
     assert _rechaza(lambda: gerente.guardar(), PermissionError), \
         "cuenta inicial que no es ADMIN_RRHH"
     assert not hay_usuarios()
@@ -1005,33 +1006,34 @@ def _autoverificar() -> None:
     assert _rechaza(lambda: gerente.guardar(admin)), "doble INSERT de usuario"
     with conectar() as con:
         guardado = con.execute("SELECT hash_clave FROM usuario"
-                               " WHERE nombre_usuario = 'c.rojas'").fetchone()[0]
+                               " WHERE nombre_usuario = ?", (rojas,)).fetchone()[0]
     assert "Clave-Rojas-2026" not in guardado and guardado.startswith("scrypt$")
 
     sesion = Usuario.autenticar("  C.Rojas ", "Clave-Rojas-2026")
     assert sesion is not None and sesion.tiene_permiso("informes"), "login válido"
     assert not sesion.tiene_permiso("empleados"), "el rol viene de la base"
-    assert Usuario.autenticar("c.rojas", "otra") is None, "clave equivocada"
+    assert Usuario.autenticar(rojas, "otra") is None, "clave equivocada"
     assert Usuario.autenticar("nadie", "Clave-Rojas-2026") is None, "inexistente"
     assert Usuario.autenticar("", "") is None, "credenciales vacías"
     assert Usuario.autenticar("c.rojas\x1b[2J", "x") is None, "nombre con escape"
     assert Usuario.autenticar("c.rojas' OR '1'='1", "x") is None, "inyección"
     for _ in range(Usuario.MAX_INTENTOS - 1):       # ya lleva 1 fallo
-        Usuario.autenticar("c.rojas", "equivocada")
-    assert Usuario.autenticar("c.rojas", "Clave-Rojas-2026") is None, \
+        Usuario.autenticar(rojas, "equivocada")
+    assert Usuario.autenticar(rojas, "Clave-Rojas-2026") is None, \
         "tras cinco fallos la cuenta se bloquea, aun con la clave correcta"
     with conectar() as con:
         con.execute("UPDATE usuario SET bloqueado_hasta = ?",
                     ((datetime.now() - timedelta(seconds=1)).isoformat(),))
-    assert Usuario.autenticar("c.rojas", "Clave-Rojas-2026") is not None, \
+    assert Usuario.autenticar(rojas, "Clave-Rojas-2026") is not None, \
         "el bloqueo es temporal"
-    assert Usuario.buscar_por_nombre("c.rojas")._Usuario__intentos_fallidos == 0
+    assert Usuario.buscar_por_nombre(rojas)._Usuario__intentos_fallidos == 0
 
     # --- Usuario → Empleado («identifica a»)
-    cuenta = Usuario("b.soto", "Clave-Soto-2026", Rol.EMPLEADO,
+    soto = "b.soto"
+    cuenta = Usuario(soto, "Clave-Soto-2026", Rol.EMPLEADO,
                      empleado_id=beto.obtener_id())
     cuenta.guardar(admin)
-    vinculado = Usuario.buscar_por_nombre("b.soto").obtener_empleado()
+    vinculado = Usuario.buscar_por_nombre(soto).obtener_empleado()
     assert vinculado.obtener_id() == beto.obtener_id(), "vínculo sin persistir"
     assert admin.obtener_empleado() is None, "ADMIN_RRHH sin empleado"
     assert _rechaza(lambda: Usuario("b.soto.dos", "Clave-Soto-2026", Rol.EMPLEADO,
@@ -1046,16 +1048,17 @@ def _autoverificar() -> None:
         "la cuenta sobrevivió a su empleado"
 
     # --- Proyecto: CRUD con ciudad y moneda
-    assert _rechaza(lambda: Proyecto("P", "d", contrato, "Valparaíso", "JPY")), \
+    valpo = "Valparaíso"
+    assert _rechaza(lambda: Proyecto("P", "d", contrato, valpo, "JPY")), \
         "moneda fuera de la lista"
     assert _rechaza(lambda: Proyecto("P", "d", contrato, "   ", "CLP")), "ciudad vacía"
     faena = Proyecto("Parque Eólico Costero", "Montaje de aerogeneradores",
-                     contrato, "Valparaíso", " clp ")
+                     contrato, valpo, " clp ")
     assert _rechaza(lambda: faena.guardar(cuenta), PermissionError), \
         "un EMPLEADO no crea proyectos"
     id_faena = faena.guardar(admin)
     leido = Proyecto.buscar(id_faena)
-    assert (leido.obtener_ciudad(), leido.obtener_moneda()) == ("Valparaíso", "CLP")
+    assert (leido.obtener_ciudad(), leido.obtener_moneda()) == (valpo, "CLP")
     assert [p.obtener_id() for p in Proyecto.listar()] == [id_faena]
     assert Proyecto.buscar(999) is None
     assert _rechaza(lambda: faena.guardar(admin)), "doble INSERT de proyecto"
@@ -1109,7 +1112,7 @@ def _autoverificar() -> None:
     assert math.isclose(faena.horas_consumidas(), 0.0, abs_tol=1e-9) \
         and faena.listar_empleados() == [], \
         "borrar el empleado arrastra horas y asignaciones"
-    assert Usuario.buscar_por_nombre("b.soto") is None, "y su cuenta"
+    assert Usuario.buscar_por_nombre(soto) is None, "y su cuenta"
     assert faena.eliminar(admin) and Proyecto.buscar(id_faena) is None
 
     # --- El informe depende de la abstracción, no de cada clase concreta

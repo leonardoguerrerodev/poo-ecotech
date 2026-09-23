@@ -189,13 +189,14 @@ def listar_proyectos() -> None:
 
 DESARROLLO = "Desarrollo Sostenible"
 INVESTIGACION = "Investigación y Desarrollo"
+CORREO_IFUENTES = "ifuentes@ecotech.cl"
 
 PLANTILLA = [
     ("Juanita Bravo Sepúlveda", "Av. Matta 1234, Santiago",
      "+56 9 8765 4321", "jbravo@ecotech.cl", date(2023, 4, 17), 1450000,
      DESARROLLO),
     ("Ignacio Fuentes Cárdenas", "Los Carrera 890, Valparaíso",
-     "+56 9 6543 2109", "ifuentes@ecotech.cl", date(2022, 11, 2), 1980000,
+     "+56 9 6543 2109", CORREO_IFUENTES, date(2022, 11, 2), 1980000,
      DESARROLLO),
     ("Camila Reyes Ortiz", "Pedro de Valdivia 55, Providencia",
      "+56 9 7412 8536", "creyes@ecotech.cl", date(2024, 1, 8), 1260000,
@@ -206,10 +207,10 @@ PLANTILLA = [
 PROYECTOS = [
     ("Parque Eólico Costero", "Montaje de aerogeneradores en el litoral",
      date(2024, 2, 5), "Valparaíso", "CLP",
-     ("jbravo@ecotech.cl", "ifuentes@ecotech.cl")),
+     ("jbravo@ecotech.cl", CORREO_IFUENTES)),
     ("Planta Solar Castilla", "Asesoría en eficiencia energética",
      date(2024, 5, 6), "Madrid", "EUR",
-     ("ifuentes@ecotech.cl", "creyes@ecotech.cl")),
+     (CORREO_IFUENTES, "creyes@ecotech.cl")),
 ]
 
 
@@ -585,8 +586,9 @@ def main() -> None:
         crear_tablas()
         if not hay_usuarios():
             alta_inicial()
-        while usar_sesion(*iniciar_sesion()):
-            pass
+        seguir = True
+        while seguir:
+            seguir = usar_sesion(*iniciar_sesion())
     except sqlite3.Error:
         print("   ! No se pudo abrir la base de datos. El programa se cierra.")
     except (Cancelado, KeyboardInterrupt, EOFError):

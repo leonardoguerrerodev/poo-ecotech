@@ -496,8 +496,14 @@ A). Dos causas, las dos en las autoverificaciones y corregidas el mismo día:
   temperatura, tipo de cambio). Pasaron a `math.isclose`: dos decimales que deberían ser iguales
   pueden diferir en el último bit.
 
-Quedan 10 issues de mantenibilidad que no bloquean el gate, casi todos textos repetidos dentro de
-las pruebas.
+Los 10 issues de mantenibilidad restantes se cerraron en el commit siguiente:
+
+| Regla | Issues | Reparación |
+|---|---|---|
+| S1192 · textos repetidos | 5 (`"c.rojas"`, `"b.soto"` y `"Valparaíso"` en las pruebas; el correo de Ignacio en la siembra) | una variable o constante por texto. De paso, la consulta de prueba que tenía `'c.rojas'` dentro del SQL pasó a `?` |
+| S1515 · `lambda` que captura la variable del ciclo | 2 (`servicios.py`) | parámetro por defecto, `lambda c=ciudad: …`. No era un error real (la `lambda` se ejecuta en el mismo ciclo), pero así lo es por construcción |
+| S108 · bloque vacío | 1 (`while …: pass` en `main()`) | un bucle con variable, `seguir = usar_sesion(…)` |
+| S4487 · atributo privado que nunca se lee | 2 (`Usuario.__intentos_fallidos`, `__bloqueado_hasta`) | **falso positivo**: se leen en `autenticar()` a través de `usuario.__…`, y el analizador solo sigue las lecturas por `self`. Se marcan `# NOSONAR` con la razón, como el precedente del 15-sep |
 
 ### 2.11 Unidad 3: autenticación, APIs y errores de red · Grave
 
