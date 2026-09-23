@@ -180,12 +180,15 @@ def listar_departamentos() -> None:
               f"{total} empleado{'s' if total != 1 else ''}")
 
 
-def listar_empleados() -> None:
+def listar_empleados(solicitante: Usuario) -> None:
+    """Con permiso de empleados, el resumen; sin él, solo id y nombre."""
     empleados = Empleado.listar()
     if not empleados:
         print("   (no hay empleados)")
+    completo = solicitante.tiene_permiso("empleados")
     for empleado in empleados:
-        print(f"   [{empleado.obtener_id()}] {empleado.obtener_resumen()}")
+        detalle = empleado.obtener_resumen() if completo else empleado.obtener_nombre()
+        print(f"   [{empleado.obtener_id()}] {detalle}")
 
 
 def listar_proyectos() -> None:
@@ -549,7 +552,7 @@ def borrar_tipo_de_cambio(solicitante: Usuario) -> None:
 ACCIONES = {
     "1": sembrar, "2": crear_departamento, "3": contratar_empleado,        # C
     "4": lambda _: listar_departamentos(),                                 # R
-    "5": lambda _: listar_empleados(),
+    "5": listar_empleados,
     "6": renombrar_departamento, "7": editar_contacto,                     # U
     "8": asignar_a_departamento,
     "9": eliminar_departamento, "10": eliminar_empleado,                   # D
