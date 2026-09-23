@@ -31,6 +31,7 @@ ESTADOS = ((0, "despejado"), (3, "nublado"), (48, "niebla"), (57, "llovizna"),
            (86, "chubascos de nieve"), (99, "tormenta"))
 PRIMERA_PRECIPITACION = 51
 VIENTO_MAXIMO_TERRENO = 40                  # km/h
+TIPO_CAMBIO_MAXIMO = 1_000_000             # CLP por unidad: más que eso es un dato roto
 
 FORMATO_INESPERADO = "El servicio externo respondió con un formato inesperado."
 MENSAJES_HTTP = {
@@ -95,13 +96,16 @@ class ServicioExterno:
         if codigo is None:
             raise ValueError("Moneda no soportada. Use: "
                              + ", ".join(self.MONEDAS))
-        datos = self.__consultar(URL_INDICADOR.format(codigo))
+        return self.__extraer_valor(self.__consultar(URL_INDICADOR.format(codigo)))
+
+    def __extraer_valor(self, datos: dict) -> float:
+        """Valida la respuesta del indicador antes de usarla: presencia, tipo y rango."""
         try:
             valor = datos["serie"][0]["valor"]
         except (KeyError, TypeError, IndexError):
             raise ServicioNoDisponible(FORMATO_INESPERADO) from None
         if (isinstance(valor, bool) or not isinstance(valor, (int, float))
-                or not math.isfinite(valor) or valor <= 0):
+                or not math.isfinite(valor) or not 0 < valor <= TIPO_CAMBIO_MAXIMO):
             raise ServicioNoDisponible(FORMATO_INESPERADO)
         return float(valor)
 
@@ -230,9 +234,14 @@ def _autoverificar() -> None:
         assert falla(lambda: servicio.obtener_tipo_cambio("UF"), contiene="JSON")
     for cuerpo in ([1, 2], {"serie": []}, {"serie": [{"valor": "958"}]},
                    {"serie": [{"valor": 0}]}, {"serie": [{"valor": float("inf")}]},
-                   {"serie": [{"valor": True}]}):
+                   {"serie": [{"valor": True}]}, {"serie": [{"valor": -1}]},
+                   {"serie": [{"valor": TIPO_CAMBIO_MAXIMO + 1}]},
+                   {"serie": [{"valor": None}]}, {"serie": [{"valor": float("nan")}]}):
         with responde(cuerpo):
             assert falla(lambda: servicio.obtener_tipo_cambio("UF")), cuerpo
+    with responde({"serie": [{"valor": TIPO_CAMBIO_MAXIMO}]}):
+        assert math.isclose(servicio.obtener_tipo_cambio("UF"), TIPO_CAMBIO_MAXIMO), \
+            "el tope es inclusivo"
     with responde({"generationtime_ms": 0.2}):
         assert falla(lambda: servicio.obtener_clima("Xyzzy"), ValueError,
                      "No se encontró"), "ciudad inexistente: 200 sin results"
