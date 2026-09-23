@@ -1,7 +1,7 @@
 # Análisis del código generado con IA
 
 **Caso EcoTech Solutions · Evaluación Sumativa 2, Unidades 2 y 3 · TI3V21**
-Criterios 2.1.5 (secciones 1 a 3) y 3.1.4 (secciones 4 a 6)
+Criterios 2.1.5 (secciones 1 a 3) y 3.1.4 (secciones 4 a 7)
 
 **Herramienta usada:** Claude (Anthropic), a través de Claude Code en el editor.
 **Modo de uso:** iterativo. Cada fragmento se pidió con el contexto puesto —la clase, la tabla y las
@@ -186,3 +186,32 @@ Un séptimo sesgo, que se suma a los de las secciones 3 y 5:
 Y una técnica nueva de prueba: **la mutación**. Que la autoverificación pase no dice nada si no se la
 ha visto fallar. Romper la regla a propósito y mirar **qué** `assert` cae (fila 48) es lo que
 distingue una prueba que protege la regla de una que pasa por casualidad.
+
+---
+
+## 7. El código cliente, revisado con los cinco aspectos del docente — 23-sep-2026
+
+La lámina 31 del bloque 5 fija lo que hay que revisar en todo código que consume servicios, y la
+lámina 35 pide pedirle a una IA que revise el cliente y anotar qué se decidió en cada aspecto. La
+revisión la hizo Claude (Anthropic), modelo Opus 5.5, sobre `servicios.py` final. Cada decisión se
+comprobó con la autoverificación y con un fallo provocado (`SALIDA_TERMINAL.md` §6).
+
+| Aspecto | Qué se revisó | Problema detectado | Decisión | Fundamento técnico |
+|---|---|---|---|---|
+| **Credenciales** | Llaves de API y datos sensibles en el código o en el repositorio | Ninguna de las dos APIs pide llave, pero la configuración estaba escrita en constantes y no había cómo cambiarla sin tocar el código | **Modificar** | Las direcciones y el tiempo de espera se leen del entorno o de un `.env` que `.gitignore` excluye; `.env.example` trae los nombres y no los valores (láminas 20-21). Si un servicio pidiera llave, iría ahí (fila 40) |
+| **Protocolo** | `https` en toda solicitud | Solo HTTPS en las direcciones por defecto, pero una variable de entorno podía cambiarlo a `http` | **Modificar** | `__consultar` rechaza, **antes de salir a la red**, cualquier dirección que no empiece con `https://`, con un mensaje que no la repite (lámina 24: por `http` la consulta y una llave viajan sin cifrar) |
+| **Timeout** | Que ningún llamado espere para siempre | Ya existía, `(3.05, 10)` (filas 26-43); al volverlo configurable, un valor como `0`, `abc` o `61` lo habría anulado | **Adoptar**, con un control nuevo | Conexión fija en 3,05 s; lectura configurable, validada en (0, 60]. Fuera de eso, no se sale a la red |
+| **Manejo de errores** | `try`, excepciones de lo concreto a lo general, que el sistema no se detenga | El manejo ya era completo (`Timeout` → `ConnectionError` → `RequestException`, código HTTP antes del cuerpo), pero ante una falla el dato simplemente faltaba | **Modificar** | Degradar antes que interrumpir (lámina 16): el último dato bueno de la sesión y, si no hay, el último guardado en la base, **siempre avisado como referencial**. Un error de quien pide (ciudad inválida) no se tapa con un dato viejo |
+| **Uso de la respuesta** | Que se compruebe antes de usarla | Ya se comprobaban las claves, el tipo, `Infinity` y `NaN`, pero un tipo de cambio de un millón de pesos pasaba | **Modificar** | La función de validación `__extraer_valor` (láminas 26 y 35) agrega el rango (0, 1.000.000]; el dato se vuelve a validar al guardarse (`TipoCambio`, `RegistroClima`) y la base lo repite con `CHECK` |
+
+### Filas nuevas (cierre de la Unidad 3)
+
+| # | Aspecto revisado | Problema detectado | Tipo | Decisión | Fundamento técnico |
+|---|---|---|---|---|---|
+| 56 | Supresión de un falso positivo de SonarCloud | La IA marcó los dos S4487 con `# NOSONAR: se lee en autenticar()`; el analizador no acepta esa sintaxis y abrió dos issues nuevos (S7632) | Error | **Descartar** el comentario | El falso positivo se marca en la interfaz de SonarCloud con su justificación; un comentario que el propio analizador rechaza empeora el reporte que quería limpiar |
+| 57 | Degradación en dos métodos públicos | La primera forma pensada anidaba un `try` dentro de `obtener_clima` y repetía la lógica de respaldo en `obtener_tipo_cambio` | Coherencia | **Modificar** | Un método privado `__con_respaldo(clave, consulta)` concentra la regla; el cuerpo del clima pasa sin cambios a `__clima_de`. Una regla en un lugar, y sin subir la complejidad cognitiva que SonarCloud ya marcó en este proyecto (S3776) |
+| 58 | Pruebas con red real | Dos verificaciones fallaron porque mindicador.cl y Open-Meteo **se demoraron de verdad**; el programa respondió bien, pero la prueba dependía de la red | Error | **Modificar** | Las pruebas de lógica usan respuestas fijas con el formato real de las APIs (`api_fija`); la red real se prueba en una sesión aparte. Una prueba que falla por el clima de internet no prueba el código |
+| 59 | Pruebas con una sola instancia del servicio | Con memoria de respaldo, las pruebas de fallos habrían **pasado degradando** en vez de fallar: la instancia compartida ya tenía el dato | Error | **Modificar** | Cada prueba de fallo usa una instancia nueva. Detectado antes de ejecutar, al razonar qué cambiaba la memoria: el mismo patrón que las filas 38 y 48 (pasar por el motivo equivocado) |
+| 60 | Comparador UML ↔ código | El comparador escrito en la pasada 7 no veía las clases nuevas (tenía la lista fija) ni los atributos con anotación de tipo (`self.__ultimos: dict = {}`) | Error | **Modificar** | Ahora recorre todas las cajas del diagrama y reconoce `AnnAssign`: 89 de 89. Una herramienta de verificación también se verifica |
+| 61 | Lector del `.env` | La opción obvia era instalar `python-dotenv` | Alcance | **Descartar** | Diez líneas de biblioteca estándar leen `CLAVE=VALOR`; una dependencia más es superficie de cadena de suministro (OWASP A03:2025) para algo trivial |
+| 62 | El dato de la API guardado | El diseño inicial del cierre solo mostraba el dato; la guía pide «persistir datos localmente» y el docente muestra pedir → validar → **guardar** → informar | Alcance | **Modificar** | `RegistroClima` y `TipoCambio` con C, R y D, **sin U**: un dato que vino de la API es evidencia, igual que las horas. La guía y las láminas 16 y 29-30 son la fuente |

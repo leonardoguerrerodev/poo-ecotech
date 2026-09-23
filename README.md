@@ -4,14 +4,15 @@ Programa de terminal en Python para gestionar empleados, departamentos y proyect
 EcoTech. Lleva a código el diagrama de clases UML de la asignatura *Programación Orientada a Objeto
 Seguro*, guarda los datos en una base SQLite, pide inicio de sesión y consulta dos servicios
 externos para cada proyecto: el **clima** de la ciudad donde se ejecuta y el **tipo de cambio** del
-día, para pagar al equipo en la moneda de ese país.
+día, para pagar al equipo en la moneda de ese país. Lo que llega de esos servicios se valida, **se
+guarda en la base** y, si la red falla, se usa el último valor conocido avisando que es referencial.
 
 ## Cómo ejecutarlo
 
-Requiere **Python 3.11 o superior** y conexión a internet para las opciones 11 y 12.
+Requiere **Python 3.11 o superior** y conexión a internet para las opciones 11, 12 y 21.
 
 ```bash
-pip install -r requirements.txt   # una sola dependencia: requests
+pip install -r requirements.txt   # requests y sus dependencias, con versión exacta
 python3 main.py                   # la primera vez pide crear la cuenta de administrador
 python3 ecotech.py                # autoverificación del sistema, sobre una base temporal
 python3 servicios.py              # autoverificación de las APIs, sin conectarse a internet
@@ -26,18 +27,32 @@ su ficha. Escribir **`x`** en cualquier dato cancela la acción sin guardar.
 Las APIs son públicas y **no piden llave**: [Open-Meteo](https://open-meteo.com) para el clima y
 [mindicador.cl](https://mindicador.cl) para el dólar y el euro.
 
+### Configuración (opcional)
+
+Las direcciones de las APIs y el tiempo de espera se pueden cambiar sin tocar el código, con
+variables de entorno o con un archivo `.env` junto a `servicios.py`. `.env.example` trae los nombres y
+los valores por defecto: se copia como `.env`, que **no** se sube al repositorio. Una dirección que no
+sea `https` o un tiempo fuera de 0 a 60 segundos se rechazan antes de salir a internet, y el programa
+sigue funcionando.
+
+```bash
+cp .env.example .env              # y editar lo que haga falta
+```
+
 ## Qué hay en el repositorio
 
 | Archivo o carpeta | Qué es |
 |---|---|
-| `ecotech.py` | El sistema: validaciones, tablas de la base, las 8 clases del UML, sus operaciones CRUD y el inicio de sesión |
+| `ecotech.py` | El sistema: validaciones, tablas de la base, las 10 clases del UML con el enumerado `Rol`, sus operaciones CRUD y el inicio de sesión |
 | `servicios.py` | Los servicios externos: la única parte del programa que habla con internet |
 | `main.py` | El menú de terminal. No tiene ni una línea de SQL ni de HTTP: solo llama a las clases |
-| `requirements.txt` | La única dependencia externa, `requests` |
+| `requirements.txt` | `requests` y sus dependencias, con versión exacta |
+| `.env.example` | Las variables de configuración, sin valores secretos (el `.env` real no se sube) |
 | `diagramas/` | El diagrama vigente, `modelo_u3.drawio`; el de la Unidad 2 (`modelo_u2.drawio`, con sus imágenes) y el de la Unidad 1 (`modelo_final.drawio`) |
-| `docs/AUDITORIA.md` | La auditoría de seguridad del código, en siete pasadas: lo que encontramos y cómo lo corregimos |
+| `docs/AUDITORIA.md` | La auditoría de seguridad del código, por pasadas: lo que encontramos y cómo lo corregimos |
 | `docs/ANALISIS_IA.md` | Qué propuso la IA, qué errores y vulnerabilidades le encontramos y qué hicimos con cada fragmento |
 | `docs/RUBRICA.md` | Los 22 indicadores de la rúbrica, cada uno con dónde está su evidencia, y el diagrama comparado con el código miembro por miembro |
+| `docs/SALIDA_TERMINAL.md` | Sesiones reales del menú, incluidos los fallos provocados: sin red, red que se cae a mitad y configuración insegura |
 
 ### Por qué tres archivos
 
@@ -58,9 +73,10 @@ Las APIs son públicas y **no piden llave**: [Open-Meteo](https://open-meteo.com
 Cada caja del UML es una clase en `ecotech.py`, con los mismos atributos y en el mismo orden. La
 visibilidad se tradujo literal: privado (`-`) es `__atributo`, protegido (`#`) es `_atributo`.
 
-Al arrancar se crean las seis tablas del modelo, y **todas se usan**: `Empleado`, `Departamento` y
+Al arrancar se crean las ocho tablas del modelo, y **todas se usan**: `Empleado`, `Departamento` y
 `Proyecto` tienen CRUD (ver [El CRUD](#el-crud)), los registros de horas se crean y se leen desde
-su empleado y su proyecto, y `Usuario` se guarda y se lee para el inicio de sesión.
+su empleado y su proyecto, lo que devuelven las APIs se guarda en `RegistroClima` y `TipoCambio`,
+y `Usuario` se guarda y se lee para el inicio de sesión.
 
 | Clase | Qué representa | En la base, en esta unidad |
 |---|---|---|
@@ -72,7 +88,9 @@ su empleado y su proyecto, y `Usuario` se guarda y se lee para el inicio de sesi
 | `RegistroTiempo` | Horas trabajadas en un proyecto | ✅ tabla `registro_tiempo`: se crea desde el empleado y se lee por proyecto |
 | `Usuario` | Credencial, rol, intentos fallidos y, si es empleado, su ficha | ✅ tabla `usuario`: alta de cuentas e inicio de sesión |
 | `Informe` | Resumen generado a partir de cualquier entidad | sin tabla: se calcula al vuelo y se exporta a CSV |
-| `ServicioExterno` | «boundary»: consulta el clima y el tipo de cambio | sin tabla: los datos se piden en el momento |
+| `ServicioExterno` | «boundary»: consulta el clima y el tipo de cambio; recuerda el último dato bueno de la sesión | sin tabla: lo que trae se guarda con las dos clases de abajo |
+| `RegistroClima` | El clima que devolvió la API para un proyecto | ✅ tabla `registro_clima`: se guarda al consultar, se lee y se borra |
+| `TipoCambio` | El valor del día de una moneda | ✅ tabla `tipo_cambio`, uno por moneda y día: se guarda, se lee y se borra |
 
 ### Las relaciones
 
@@ -85,6 +103,7 @@ su empleado y su proyecto, y `Usuario` se guarda y se lee para el inicio de sesi
 | Asociación «gerente» | `asignar_gerente()` | `gerente_id` (solo alguien del mismo departamento) |
 | Muchos a muchos `Proyecto`–`Empleado` | `asignar_empleado()`, `desasignar_empleado()`, `listar_empleados()` | tabla intermedia `empleado_proyecto` |
 | Asociación «identifica a» `Usuario`–`Empleado` | `obtener_empleado()`: la cuenta de un empleado sabe quién es | `usuario.empleado_id`, único; borrar al empleado borra su cuenta |
+| Composición ◆ `Proyecto`–`RegistroClima` | `RegistroClima.guardar(proyecto, …)`, `listar(proyecto)` | `ON DELETE CASCADE`: el historial de clima se va con el proyecto |
 
 **Todas las relaciones viven solo en la base**: no hay copias en memoria que se puedan
 desincronizar.
@@ -123,8 +142,12 @@ Es el foco de la asignatura, así que la resumimos punto por punto:
   consulta y registra **solo sus propias horas**, en proyectos donde participa.
 - **Servicios externos:** toda solicitud lleva **tiempo de espera** (3 s para conectar, 10 para
   leer), se revisa el **código HTTP** antes de leer la respuesta, y el JSON se valida campo por campo
-  antes de usarlo. La ciudad y la moneda se validan antes de salir a internet (la moneda, contra una
-  lista cerrada). Lo que llega de la red se trata con la misma desconfianza que lo que se teclea.
+  antes de usarlo, incluido el **rango** (un dólar a un millón de pesos es un dato roto). La ciudad y
+  la moneda se validan antes de salir a internet (la moneda, contra una lista cerrada), y solo se
+  acepta `https`, aunque la dirección venga de la configuración. Lo que llega de la red se trata con
+  la misma desconfianza que lo que se teclea, y se vuelve a validar antes de guardarse.
+- **Si el servicio falla, el sistema no se detiene:** usa el último dato bueno de la sesión o, si no
+  hay, el último guardado en la base, y **avisa que es referencial**. Nunca lo usa en silencio.
 - **Datos privados:** el salario es un atributo privado y solo sale con permiso. Los listados y los
   informes nunca lo muestran.
 - **Archivo de la base:** queda con permisos `0600`, legible solo por su dueño, porque adentro hay
@@ -186,6 +209,11 @@ descartó**. Varias fueron errores de la propia IA sobre su trabajo anterior —
 coincidía con el código, una cifra sumada de memoria— y los atrapó un control automático, no una
 relectura.
 
+En el cierre de la Unidad 3 revisamos el código cliente con los cinco aspectos que pide el docente
+(credenciales, protocolo, tiempo de espera, manejo de errores y uso de la respuesta) y registramos 7
+decisiones más: **5 se modificaron y 2 se descartaron**; entre ellas, una prueba que habría pasado por
+el motivo equivocado y un comentario de supresión que el propio analizador rechazaba.
+
 El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
 
 ## Qué quedó fuera
@@ -193,6 +221,7 @@ El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
 | Qué | Por qué |
 |---|---|
 | Editar o borrar un registro de horas | Un registro de horas es traza: se crea y se lee, y se va solo cuando se va su empleado |
+| Editar un dato guardado de las APIs | Es evidencia de lo que respondió el servicio: se guarda, se lee y se borra, pero no se modifica |
 | Cambiar la clave desde el menú | `cambiar_clave` existe en la clase, pero no se guarda en la base todavía |
 | Llave de API | Ninguna de las dos APIs la pide. Si una la pidiera, iría en una variable de entorno o en `.env` (ya excluido del repositorio), nunca en el código |
 
@@ -208,9 +237,9 @@ El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
 
 ## El menú
 
-Veinte opciones agrupadas por operación: **C** crear (1-3), **R** leer (4-5), **U** actualizar
-(6-8), **D** eliminar (9-10), **S** servicios externos (11-12), **A** administración (13-14) y
-**P** proyectos (15-20).
+Veinticinco opciones agrupadas por operación: **C** crear (1-3), **R** leer (4-5), **U**
+actualizar (6-8), **D** eliminar (9-10), **S** servicios externos (11-12), **A** administración
+(13-14), **P** proyectos (15-20) y **H** historial de las APIs (21-25).
 Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a aparecer.
 
 ```
@@ -236,6 +265,11 @@ Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a apar
    16. Proyectos                 19. Registrar horas
    17. Asignar empleado          20. Eliminar proyecto
 
+   H — HISTORIAL DE LAS APIS
+   21. Guardar cambio del día    24. Borrar registro de clima
+   22. Historial de clima        25. Borrar tipo de cambio
+   23. Historial tipo de cambio
+
    Escriba "x" para cancelar la acción en curso   ·   0. salir
 ==================================================================
 
@@ -243,10 +277,12 @@ Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a apar
    Id del proyecto: 2
    Madrid, España: nublado, 27.1 °C, humedad 20 %, viento 0.8 km/h.
    Condiciones aptas para trabajo en terreno.
+   Guardado en el historial del proyecto (registro 1).
 
    Opción: 12
    Id del proyecto: 2
-   Planilla en EUR  (1 EUR = 1,081.49 CLP hoy)
+   Tipo de cambio del día guardado en el historial.
+   Planilla en EUR  (1 EUR = 1,081.49 CLP)
    Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
    Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR
 ```
