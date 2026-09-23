@@ -15,6 +15,7 @@ import math                                 # rechaza un tipo de cambio infinito
 from datetime import date                   # la fecha que informa la API, validada
 import os                                   # configuración por variables de entorno
 import re                                   # patrón de nombres de ciudad
+import sys                                  # el aviso de un .env ilegible va a stderr
 from pathlib import Path                    # ubica el .env junto a este archivo
 
 import requests                             # HTTP: timeouts, códigos de estado y JSON
@@ -63,14 +64,23 @@ def _en_rango(valor, minimo: float, maximo: float) -> bool:
 
 
 def _cargar_env(ruta: Path = RUTA_ENV) -> None:
-    """Carga CLAVE=VALOR desde un .env, si existe. Las variables reales ganan."""
+    """Carga las variables ECOTECH_* de un .env, si existe; las reales ganan.
+    Otras claves (un HTTPS_PROXY, por ejemplo) no se cuelan. Un .env ilegible se
+    ignora con aviso: quedan los valores por defecto, que son seguros."""
     if not ruta.is_file():
         return
-    for linea in ruta.read_text(encoding="utf-8").splitlines():
+    try:
+        lineas = ruta.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        print("   ! No se pudo leer el archivo .env: se usan los valores por defecto.",
+              file=sys.stderr)
+        return
+    for linea in lineas:
         linea = linea.strip()
         if linea and not linea.startswith("#") and "=" in linea:
-            clave, valor = linea.split("=", 1)
-            os.environ.setdefault(clave.strip(), valor.strip())
+            clave, valor = (parte.strip() for parte in linea.split("=", 1))
+            if clave.startswith("ECOTECH_"):
+                os.environ.setdefault(clave, valor)
 
 
 _cargar_env()
@@ -381,6 +391,18 @@ def _autoverificar() -> None:
             assert os.environ["ECOTECH_TIEMPO_ESPERA"] == "7", ".env no cargado"
             assert os.environ["ECOTECH_URL_CLIMA"] == "https://real", \
                 "una variable real del entorno le gana al .env"
+        env.write_text("HTTPS_PROXY=http://10.0.0.1:3128\nECOTECH_TIEMPO_ESPERA=8\n",
+                       encoding="utf-8")
+        with mock.patch.dict(os.environ, limpio, clear=True):
+            os.environ.pop("HTTPS_PROXY", None)
+            _cargar_env(env)
+            assert "HTTPS_PROXY" not in os.environ, "solo entran las variables ECOTECH_*"
+            assert os.environ["ECOTECH_TIEMPO_ESPERA"] == "8"
+        env.write_bytes("ECOTECH_URL_CLIMA=https://ñandú\n".encode("latin-1"))
+        with mock.patch.dict(os.environ, limpio, clear=True), \
+                mock.patch.object(sys, "stderr", new=__import__("io").StringIO()) as err:
+            _cargar_env(env)                        # no lanza: se ignora con aviso
+            assert "ECOTECH_URL_CLIMA" not in os.environ and ".env" in err.getvalue()
 
     # --- Degradar antes que interrumpir: el último dato bueno de la sesión
     memoria = configurado()

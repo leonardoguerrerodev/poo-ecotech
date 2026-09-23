@@ -1039,10 +1039,14 @@ class Informe:
             else:
                 with open(destino, "w", encoding="utf-8") as archivo:
                     archivo.write(self.obtener_texto())
-            return True
         except OSError:
             print("   ! No se pudo escribir el archivo del informe.")
             return False
+        try:
+            os.chmod(destino, 0o600)             # lleva nombres y contactos, como la base
+        except OSError:
+            print("   ! No se pudo restringir los permisos del informe.")
+        return True
 
     def obtener_texto(self) -> str:
         return "\n".join(
@@ -1379,6 +1383,8 @@ def _autoverificar() -> None:
     filas = Path("dotacion.csv").read_text(encoding="utf-8").splitlines()
     assert filas[1] == "'=1+1" and filas[2] == "'@SUM(A1:A9)", "fórmula sin neutralizar"
     assert filas[3] == "Juanita Bravo", "se tocó un valor que no era fórmula"
+    assert os.name == "nt" or oct(os.stat("dotacion.csv").st_mode).endswith("600"), \
+        "el informe exportado quedó legible por otros"
     assert _rechaza(lambda: informe.exportar("../fuga.csv")), "path traversal"
 
 
