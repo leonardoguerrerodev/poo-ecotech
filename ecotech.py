@@ -782,7 +782,8 @@ def _autoverificar() -> None:
 
     # --- CRUD sobre las dos clases relacionadas
     crear_tablas()
-    assert oct(os.stat(RUTA_ACTIVA).st_mode).endswith("600"), "base legible por otros"
+    assert os.name == "nt" or oct(os.stat(RUTA_ACTIVA).st_mode).endswith("600"), \
+        "base legible por otros"
 
     dep = Departamento("Desarrollo Sostenible")
     id_dep = dep.guardar(admin)                                     # C
@@ -903,9 +904,13 @@ def _autoverificar() -> None:
 if __name__ == "__main__":
     import tempfile
 
+    original = os.getcwd()
     with tempfile.TemporaryDirectory() as carpeta:
         usar_base(os.path.join(carpeta, "autoverificacion.db"))
         os.chdir(carpeta)
-        _autoverificar()
+        try:
+            _autoverificar()
+        finally:
+            os.chdir(original)
     print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento"
           " · inicio de sesión y bloqueo")
