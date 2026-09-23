@@ -1,7 +1,6 @@
 # Matriz de rúbrica — EcoTech Solutions, Evaluación Sumativa 2 (U2 + U3)
 
-> **Estado al 23-sep-2026, después de la pasada 8** (auditoría integral de cierre, `AUDITORIA.md`
-> §2.13). Generado por `docs/herramientas/e10_rubrica.py`: las referencias `archivo:línea` se
+> **Estado al 23-sep-2026, después de la pasada 8 y su corrección** (`AUDITORIA.md` §2.13). Generado por `docs/herramientas/e10_rubrica.py`: las referencias `archivo:línea` se
 > calculan desde el código y la Tabla 2 la produce un comparador, no se escriben a mano.
 > Punto de partida de la pasada 7: 12 ✅ · 10 ⚠️ (commit `cf608ef`).
 >
@@ -26,25 +25,25 @@
 | 2.1.2.I.4 | Justifica el encapsulamiento | 2,4 | `DEFENSA_ORAL.md` §3.2 | ✅ | — |
 | 2.1.3.G.5 | Conexión con librería oficial y CRUD verificado | 2,4 | `sqlite3`; `conectar()` `ecotech.py:165-173`; CRUD de `Empleado` `ecotech.py:256-368`, `Departamento` `ecotech.py:371-502`, `Proyecto` `ecotech.py:505-628`, `RegistroClima` `ecotech.py:678-764` y `TipoCambio` `ecotech.py:767-849`; `SALIDA_TERMINAL.md` §5-6 | ✅ | Las ocho tablas se usan |
 | 2.1.3.I.6 | Configuración de la conexión y lógica del CRUD | 3,0 | `DEFENSA_ORAL.md` | ✅ | — |
-| 2.1.4.G.7 | `try/except`, validación de entradas, sin interrupciones | 2,4 | `atender()` `main.py:587-620`; login protegido `main.py:647-665`; 13 entradas hostiles rechazadas sin traza (`AUDITORIA.md` §2.13) | ✅ | Hallazgo Bajo abierto: un `.env` que no es UTF-8 impide arrancar (A8-05) |
+| 2.1.4.G.7 | `try/except`, validación de entradas, sin interrupciones | 2,4 | `atender()` `main.py:591-624`; login protegido `main.py:651-669`; 13 entradas hostiles rechazadas sin traza (`AUDITORIA.md` §2.13) | ✅ | A8-05 corregido: un `.env` ilegible se ignora con aviso |
 | 2.1.4.I.8 | Explica los `try/except` | 3,6 | `DEFENSA_ORAL.md` | ✅ | — |
 | 2.1.5.G.9 | Prueba y ajusta el código de IA | 3,0 | `ANALISIS_IA.md` §1-3 | ✅ | — |
 | 2.1.5.I.10 | Transparencia y criterios | 4,2 | `ANALISIS_IA.md` §2 | ✅ | — |
-| 3.1.1.G.11 | Solicitudes HTTP con librería oficial; JSON | 1,8 | `requests` en `__consultar` `servicios.py:167-204`; `requirements.txt` con versión exacta | ✅ | Hallazgo Medio abierto: las versiones fijadas tienen avisos conocidos, no explotables con este uso (A8-04) |
-| 3.1.1.G.12 | Extrae, **integra y verifica** los datos de la API | 1,8 | Clima y planilla por proyecto; el dato se valida y se **guarda** (`clima_del_proyecto` `main.py:324-350`, `tipo_cambio_del_dia` `main.py:353-368`, opción 21 `main.py:492-511`) | ⚠️ | **A8-02:** el clima no se valida por rango antes de mostrarse y decidir «apto»; solo el tipo de cambio pasa por `__extraer_valor` `servicios.py:156-165` |
+| 3.1.1.G.11 | Solicitudes HTTP con librería oficial; JSON | 1,8 | `requests` en `__consultar` `servicios.py:193-230`; `requirements.txt` con versión exacta | ✅ | A8-04 corregido: versiones sin avisos en OSV (23-sep-2026) |
+| 3.1.1.G.12 | Extrae, **integra y verifica** los datos de la API | 1,8 | Clima y planilla por proyecto; el dato se valida y se **guarda** (`clima_del_proyecto` `main.py:328-354`, `tipo_cambio_del_dia` `main.py:357-372`, opción 21 `main.py:496-515`) | ✅ | El clima y el tipo de cambio se validan por rango antes de usarse (`_en_rango` `servicios.py:60-63`, `__extraer_valor` `servicios.py:178-191`); A8-02 y A8-07 corregidos |
 | 3.1.1.I.13 | Explica HTTP, JSON e integración | 3,0 | `README.md`; `AUDITORIA.md` §2.11; `ANALISIS_IA.md` §4-7 | ✅ | — |
 | 3.1.2.G.14 | Autenticación con credenciales cifradas; valida y sanea entradas de las APIs | 2,4 | scrypt, señuelo y bloqueo (`autenticar` `ecotech.py:976-1004`); primera cuenta creada en el primer uso, sin credenciales en el código; ciudad y moneda validadas; **variables de entorno** con `https` exigido (`__consultar`) y `.env.example` | ✅ | — |
-| 3.1.2.G.15 | Protege la información sensible; controla flujo y sesión | 2,4 | Permisos `proyectos`/`tiempo`, revisados antes de pedir datos (`main.py:63`); matriz real 3 roles × 25 opciones igual a la documentada | ⚠️ | **A8-01:** la espera en «Presione Enter» no cuenta como inactividad. **A8-03:** EMPLEADO y GERENTE ven correo y teléfono de toda la plantilla |
+| 3.1.2.G.15 | Protege la información sensible; controla flujo y sesión | 2,4 | Permisos `proyectos`/`tiempo`, revisados antes de pedir datos (`main.py:63`); matriz real 3 roles × 25 opciones igual a la documentada | ✅ | A8-01 corregido: la inactividad cuenta también en la pausa (`usar_sesion` `main.py:672-694`). A8-03 corregido: sin permiso `empleados`, solo id y nombre (`listar_empleados` `main.py:183-191`) |
 | 3.1.2.I.16 | Explica autenticación y protección | 3,6 | `AUDITORIA.md` §2.11-2.13; `README.md` § Seguridad | ✅ | — |
-| 3.1.3.G.17 | Conectividad, red y tiempos de espera | 2,4 | `__consultar`; degradación en dos capas (`__con_respaldo` `servicios.py:144-154` y última fila guardada); `SALIDA_TERMINAL.md` §6.2-6.3 | ✅ | — |
+| 3.1.3.G.17 | Conectividad, red y tiempos de espera | 2,4 | `__consultar`; degradación en dos capas (`__con_respaldo` `servicios.py:166-176` y última fila guardada); `SALIDA_TERMINAL.md` §6.2-6.3 | ✅ | — |
 | 3.1.3.G.18 | Códigos HTTP; continuidad y comunicación segura de errores | 2,4 | Código revisado antes del cuerpo; mensajes fijos; configuración insegura rechazada sin repetirla (`SALIDA_TERMINAL.md` §6.4) | ✅ | Hallazgo Bajo abierto: redirecciones no verificadas (A8-06) |
 | 3.1.3.I.19 | Explica excepciones, red y códigos | 4,2 | `AUDITORIA.md` §2.11; `SALIDA_TERMINAL.md` §4-6 | ✅ | — |
 | 3.1.4.G.20 | Evidencia el uso de IA | 3,0 | `ANALISIS_IA.md` §4-7 (filas 26-63) y tabla de 5 aspectos | ✅ | — |
 | 3.1.4.G.21 | Errores y vulnerabilidades del código de IA, refactorizados | 3,0 | `ANALISIS_IA.md` §4-7; `AUDITORIA.md` §2.10-2.13; pruebas de mutación | ✅ | — |
 | 3.1.4.I.22 | Explica el uso de IA y la refactorización | 4,2 | `ANALISIS_IA.md` §5-7 | ✅ | — |
 
-**Estado: 20 ✅ · 2 ⚠️.** Las dos brechas son hallazgos Medios de la pasada 8, con corrección
-propuesta en `AUDITORIA.md` §2.13.
+**Estado: 22 ✅.** Las dos brechas de la pasada 8 (3.1.1.G.12 y 3.1.2.G.15) se corrigieron el
+23-sep-2026; el seguimiento está en `AUDITORIA.md` §2.13.
 
 ## Tabla 2 — Diagrama (`diagramas/modelo_u3.drawio`) ↔ código, miembro por miembro
 
@@ -154,24 +153,24 @@ compara los parámetros. **89 miembros, 0 diferencias.**
 | `- contenido: list` | `__contenido` | `ecotech.py:1013` | ✅ |
 | `+ generar(titulo: str, entidades: list, solicitante: Usuario): Informe` | `generar` | `ecotech.py:1016` | ✅ |
 | `+ exportar(ruta: str, formato: str): bool` | `exportar` | `ecotech.py:1021` | ✅ |
-| `+ obtenerTexto(): str` | `obtener_texto` | `ecotech.py:1047` | ✅ |
+| `+ obtenerTexto(): str` | `obtener_texto` | `ecotech.py:1051` | ✅ |
 
 ### ServicioExterno
 
 | Miembro UML | Código | Dónde | Estado |
 |---|---|---|---|
-| `- urlGeocodificacion: str` | `__url_geocodificacion` | `servicios.py:75` | ✅ |
-| `- urlClima: str` | `__url_clima` | `servicios.py:77` | ✅ |
-| `- urlIndicadores: str` | `__url_indicadores` | `servicios.py:78` | ✅ |
-| `- tiempoEspera: float [0..1]` | `__tiempo_espera` | `servicios.py:81` | ✅ |
-| `- ultimos: dict` | `__ultimos` | `servicios.py:85` | ✅ |
-| `+ obtenerClima(ciudad: str): dict` | `obtener_clima` | `servicios.py:87` | ✅ |
-| `+ obtenerTipoCambio(moneda: str): dict` | `obtener_tipo_cambio` | `servicios.py:134` | ✅ |
-| `- consultar(url: str, params: dict): dict` | `__consultar` | `servicios.py:167` | ✅ |
-| `# validarCiudad(ciudad: str): bool` | `_validar_ciudad` | `servicios.py:206` | ✅ |
-| `- extraerValor(datos: dict): float` | `__extraer_valor` | `servicios.py:156` | ✅ |
-| `- conRespaldo(clave: tuple, consulta): dict` | `__con_respaldo` | `servicios.py:144` | ✅ |
-| `- climaDe(ciudad: str): dict` | `__clima_de` | `servicios.py:95` | ✅ |
+| `- urlGeocodificacion: str` | `__url_geocodificacion` | `servicios.py:96` | ✅ |
+| `- urlClima: str` | `__url_clima` | `servicios.py:98` | ✅ |
+| `- urlIndicadores: str` | `__url_indicadores` | `servicios.py:99` | ✅ |
+| `- tiempoEspera: float [0..1]` | `__tiempo_espera` | `servicios.py:102` | ✅ |
+| `- ultimos: dict` | `__ultimos` | `servicios.py:106` | ✅ |
+| `+ obtenerClima(ciudad: str): dict` | `obtener_clima` | `servicios.py:108` | ✅ |
+| `+ obtenerTipoCambio(moneda: str): dict` | `obtener_tipo_cambio` | `servicios.py:156` | ✅ |
+| `- consultar(url: str, params: dict): dict` | `__consultar` | `servicios.py:193` | ✅ |
+| `# validarCiudad(ciudad: str): bool` | `_validar_ciudad` | `servicios.py:232` | ✅ |
+| `- extraerValor(datos: dict): dict` | `__extraer_valor` | `servicios.py:178` | ✅ |
+| `- conRespaldo(clave: tuple, consulta): dict` | `__con_respaldo` | `servicios.py:166` | ✅ |
+| `- climaDe(ciudad: str): dict` | `__clima_de` | `servicios.py:116` | ✅ |
 
 ### RegistroClima
 

@@ -33,7 +33,8 @@ Las direcciones de las APIs y el tiempo de espera se pueden cambiar sin tocar el
 variables de entorno o con un archivo `.env` junto a `servicios.py`. `.env.example` trae los nombres y
 los valores por defecto: se copia como `.env`, que **no** se sube al repositorio. Una dirección que no
 sea `https` o un tiempo fuera de 0 a 60 segundos se rechazan antes de salir a internet, y el programa
-sigue funcionando.
+sigue funcionando. Del `.env` solo se leen las variables `ECOTECH_*`, y si el archivo no se puede
+leer se usan los valores por defecto.
 
 ```bash
 cp .env.example .env              # y editar lo que haga falta
@@ -139,10 +140,12 @@ Es el foco de la asignatura, así que la resumimos punto por punto:
 - **Permisos por rol:** tres roles (`ADMIN_RRHH`, `GERENTE`, `EMPLEADO`). El menú revisa el permiso
   **antes de pedir el primer dato**, y las clases lo vuelven a revisar al escribir. Un gerente
   administra proyectos y ve el informe de dotación, pero no los sueldos ni la planilla; un empleado
-  consulta y registra **solo sus propias horas**, en proyectos donde participa.
+  consulta y registra **solo sus propias horas**, en proyectos donde participa. El correo y el
+  teléfono de los empleados solo los ve quien tiene el permiso de RRHH; los demás ven id y nombre.
 - **Servicios externos:** toda solicitud lleva **tiempo de espera** (3 s para conectar, 10 para
   leer), se revisa el **código HTTP** antes de leer la respuesta, y el JSON se valida campo por campo
-  antes de usarlo, incluido el **rango** (un dólar a un millón de pesos es un dato roto). La ciudad y
+  antes de usarlo, incluido el **rango** (un dólar a un millón de pesos, o una humedad de 150 %, es
+  un dato roto) y la fecha que informa el servicio. La ciudad y
   la moneda se validan antes de salir a internet (la moneda, contra una lista cerrada), y solo se
   acepta `https`, aunque la dirección venga de la configuración. Lo que llega de la red se trata con
   la misma desconfianza que lo que se teclea, y se vuelve a validar antes de guardarse.
@@ -210,8 +213,8 @@ coincidía con el código, una cifra sumada de memoria— y los atrapó un contr
 relectura.
 
 En el cierre de la Unidad 3 revisamos el código cliente con los cinco aspectos que pide el docente
-(credenciales, protocolo, tiempo de espera, manejo de errores y uso de la respuesta) y registramos 8
-decisiones más: **6 se modificaron y 2 se descartaron**; entre ellas, una prueba que habría pasado por
+(credenciales, protocolo, tiempo de espera, manejo de errores y uso de la respuesta) y registramos 13
+decisiones más: **10 se modificaron, 2 se descartaron y 1 se adoptó**; entre ellas, una prueba que habría pasado por
 el motivo equivocado y un comentario de supresión que el propio analizador rechazaba.
 
 El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
@@ -281,7 +284,7 @@ Después de cada acción el menú pide Enter, limpia la pantalla y vuelve a apar
 
    Opción: 12
    Id del proyecto: 2
-   Tipo de cambio del día guardado en el historial.
+   Tipo de cambio del 23-09-2026 guardado en el historial.
    Planilla en EUR  (1 EUR = 1,081.49 CLP)
    Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
    Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR

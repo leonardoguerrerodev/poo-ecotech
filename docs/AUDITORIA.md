@@ -42,7 +42,7 @@ información sensible) y **3.1.3** (errores de red y códigos HTTP).
 | 2.10 | SonarCloud: carácter bidireccional, regex super-lineal, complejidad y 13 más | 5 | Media | **Corregido** (uno anotado para la Unidad 3) |
 | 2.11 | Unidad 3: sin autenticación, permisos tardíos, mensajes que filtraban detalle, datos de la red sin validar | 6 | Grave | **Corregido** |
 | 2.12 | El login moría con un hash corrupto; proyectos y horas solo en memoria; el EMPLEADO administraba proyectos; dos mensajes con la ruta del archivo | 7 | Grave | **Corregido** |
-| 2.13 | Integral de cierre: sesión que no caduca en la pausa, clima sin rango, contacto visible para todos, dependencias con avisos, y 16 más | 8 | Media | **Abierto**: se corrige con un plan aparte |
+| 2.13 | Integral de cierre: sesión que no caduca en la pausa, clima sin rango, contacto visible para todos, dependencias con avisos, y 16 más | 8 | Media | **Los 4 Medios y 4 Bajos corregidos**; 5 Bajos abiertos |
 | 3.1 | `actualizar_contacto` no pide permiso | 1 y 6 | Decisión | **Cerrado en el menú** (pasada 6) |
 | 3.2 | `Empleado._proyectos` modificable desde fuera | 1 | Observación | **Resuelto** en la pasada 7: la lista ya no existe |
 | 3.3 | Datos de contacto en el resumen exportable | 1 | Observación | Se declara |
@@ -671,7 +671,7 @@ fuera la única barrera, y la mutación volvió a fallar, ahora en el `assert` c
 «borrar un proyecto con horas» la detiene además la clave foránea: son dos capas, y el `ValueError`
 existe para dar un mensaje claro antes de llegar a la base.
 
-### 2.13 Pasada 8: auditoría integral de cierre · 4 Medios abiertos
+### 2.13 Pasada 8: auditoría integral de cierre · 4 Medios corregidos
 
 Octava pasada, 23-sep-2026, con el **Método Auditoría** del vault (ciclo de 7 pasos, severidad
 común, confianza CONFIRMADO/PLAUSIBLE) y el plan `docs/planes/2026-09-23_auditoria-integral-u3.md`.
@@ -732,6 +732,28 @@ dependencias tienen avisos conocidos (no explotables con este uso). Además hay 
 | A8-18 | Info | CONFIRMADO | propio | listados de proyectos | N+1: 2 conexiones por proyecto; 1000 proyectos en 0,7 s | Aceptado a esta escala |
 | A8-19 | Info | CONFIRMADO | propio | GitHub | Repositorio público, `main` sin protección, un colaborador con `push` | Proteger `main`; **HUMANO:** confirmar 2FA de la cuenta |
 | A8-20 | Info | CONFIRMADO | propio | mensajes de validación | «Horas inválidas: inf» repite lo tecleado; no es sensible | — |
+
+#### Seguimiento: corrección del 23-sep-2026
+
+Plan `docs/planes/2026-09-23_correccion-pasada8.md`. Cada corrección tiene una prueba que **falla con
+el código anterior** (reproducción) o **con la regla quitada** (mutación). Commits sin coautor.
+
+| ID | Estado | Corrección | Verificación | Commit |
+|---|---|---|---|---|
+| A8-01 | **Corregido** | la inactividad se mide también durante la pausa | `p8_inactividad.py`: 2 h en la pausa cierran la sesión; la misma prueba falla contra el código anterior | `2d1c1c8` |
+| A8-02 | **Corregido** | rango de las cuatro medidas y de las coordenadas en `servicios.py`, antes de decidir y de guardar en memoria | 7 cuerpos fuera de rango rechazados, bordes aceptados; mutación de la humedad detectada; el caso del agente ya no dice «aptas» | `41aec6a` |
+| A8-03 | **Corregido** | la opción 5 muestra solo id y nombre a quien no tiene `empleados` | EMPLEADO y GERENTE: 0 correos y 0 teléfonos; RRHH: resumen completo; matriz de permisos igual | `147089f` |
+| A8-04 | **Corregido** | `requests` 2.34.2, `urllib3` 2.8.0, `idna` 3.20, `certifi` 2026.7.22, `charset-normalizer` 3.5.1 | 0 avisos en OSV; suite y sesión real en verde **dentro de un entorno aislado** con esas versiones | `ad17a38` |
+| A8-05 | **Corregido** | el `.env` solo aporta `ECOTECH_*`; si no se puede leer, se ignora con aviso | `.env` latin-1: el programa arranca; `HTTPS_PROXY` no entra; dos mutaciones detectadas | `0744e55` |
+| A8-07 | **Corregido** | el tipo de cambio se guarda con la fecha de la serie (validada, no futura) | fecha ausente, mal formada o futura rechazadas; el historial guarda el 19-09 que informa la API | `f125a51` |
+| A8-11 | **Corregido** | el CSV exportado queda en `0600` | la autoverificación lo comprueba; mutación detectada | `0744e55` |
+| A8-12 | **Corregido** | los tres `.zip` salieron de `ecotech_new/` a `02_Evaluacion1_EcoTech/_respaldos/` (movidos, íntegros) | `ls ecotech_new/*.zip` vacío | — (fuera de git) |
+| A8-06, A8-08, A8-09, A8-10, A8-13 | Abiertos | fuera del alcance de esta corrección | — | — |
+| A8-14 a A8-20 | Informativos | A8-15 y A8-18 aceptados; el resto, declarados | — | — |
+
+**Riesgo que se mantiene, declarado otra vez (§3.3):** el informe de dotación (opción 13) sigue
+incluyendo correo y teléfono para quien tiene el permiso `informes`, porque es lo que define el resumen
+del diagrama.
 
 #### Lo que está bien (con evidencia)
 

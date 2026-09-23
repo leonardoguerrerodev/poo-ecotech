@@ -930,14 +930,15 @@ en el 2.
 
 ## 6. Unidad 3, cierre — historial de las APIs y fallos provocados
 
-Corridas del 23-sep-2026 con el mismo guion de entradas (`docs/herramientas/driver.py`), sobre bases
+Corridas del 23-sep-2026, regeneradas tras la corrección de la pasada 8, con el mismo guion de entradas (`docs/herramientas/driver.py`), sobre bases
 temporales. Son los **fallos provocados** que pide la lámina 35 del docente: la red se corta o se
 configura mal a propósito, y se muestra qué hace el sistema. Solo las líneas de cada acción.
 
 ### 6.1 El dato de la API se valida y se guarda (C, R y D, sin U)
 
 Las respuestas de las APIs son fijas y tienen el formato real de Open-Meteo y mindicador.cl, para que
-la corrida sea reproducible; la sesión con red real es la de la sección 5.
+la corrida sea reproducible (la API fija informa el sábado 19-09-2026: el historial guarda
+esa fecha, no la de hoy); la sesión con red real es la de la sección 5.
 
 ```
    Opción: 1
@@ -951,21 +952,21 @@ la corrida sea reproducible; la sesión con red real es la de la sección 5.
 
    Opción: 12
    Id del proyecto: 2
-   Tipo de cambio del día guardado en el historial.
+   Tipo de cambio del 19-09-2026 guardado en el historial.
    Planilla en EUR  (1 EUR = 1,081.49 CLP)
    Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
    Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR
 
    Opción: 21
-   Guardados: 1 · ya registrados hoy: 1 · descartados: 0
+   Guardados: 1 · ya registrados: 1 · descartados: 0
 
    Opción: 22
    Id del proyecto: 1
-   [1] Clima 2026-09-23 19:33 | Valparaíso, Chile | nublado, 17.0 °C, humedad 61 %, viento 12.5 km/h | apto para terreno
+   [1] Clima 2026-09-23 20:13 | Valparaíso, Chile | nublado, 17.0 °C, humedad 61 %, viento 12.5 km/h | apto para terreno
 
    Opción: 23
-   [1] Tipo de cambio 2026-09-23 | 1 EUR = 1,081.49 CLP
-   [2] Tipo de cambio 2026-09-23 | 1 USD = 945.87 CLP
+   [1] Tipo de cambio 2026-09-19 | 1 EUR = 1,081.49 CLP
+   [2] Tipo de cambio 2026-09-19 | 1 USD = 945.87 CLP
 
    Opción: 24
    Id del registro de clima: 1
@@ -980,7 +981,7 @@ la corrida sea reproducible; la sesión con red real es la de la sección 5.
    Tipo de cambio eliminado.
 
    Opción: 23
-   [1] Tipo de cambio 2026-09-23 | 1 EUR = 1,081.49 CLP
+   [1] Tipo de cambio 2026-09-19 | 1 EUR = 1,081.49 CLP
 
    Opción: 11
    Id del proyecto: 1
@@ -1001,12 +1002,12 @@ El programa se cerró y se volvió a abrir, así que la memoria de la sesión es
    Opción: 11
    Id del proyecto: 1
    ! Valor referencial: el servicio no respondió y se muestra el último dato guardado en la base.
-   Clima 2026-09-23 19:33 | Valparaíso, Chile | nublado, 17.0 °C, humedad 61 %, viento 12.5 km/h | apto para terreno
+   Clima 2026-09-23 20:13 | Valparaíso, Chile | nublado, 17.0 °C, humedad 61 %, viento 12.5 km/h | apto para terreno
 
    Opción: 12
    Id del proyecto: 2
    ! Valor referencial: el servicio no respondió y se muestra el último dato guardado en la base.
-   Tipo de cambio 2026-09-23 | 1 EUR = 1,081.49 CLP
+   Tipo de cambio 2026-09-19 | 1 EUR = 1,081.49 CLP
    Planilla en EUR  (1 EUR = 1,081.49 CLP)
    Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
    Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR
@@ -1014,7 +1015,7 @@ El programa se cerró y se volvió a abrir, así que la memoria de la sesión es
    Opción: 21
    ! USD: No hay conexión con el servicio externo. Revise la red.
    ! EUR: No hay conexión con el servicio externo. Revise la red.
-   Guardados: 0 · ya registrados hoy: 0 · descartados: 2
+   Guardados: 0 · ya registrados: 0 · descartados: 2
 
    Opción: 11
    Id del proyecto: 2
@@ -1040,7 +1041,7 @@ Las tres primeras solicitudes responden y desde la cuarta la red está caída.
 
    Opción: 12
    Id del proyecto: 2
-   Tipo de cambio del día guardado en el historial.
+   Tipo de cambio del 19-09-2026 guardado en el historial.
    Planilla en EUR  (1 EUR = 1,081.49 CLP)
    Camila Reyes Ortiz: 1,260,000 CLP = 1,165.06 EUR
    Ignacio Fuentes Cárdenas: 1,980,000 CLP = 1,830.81 EUR
@@ -1075,7 +1076,7 @@ Las tres primeras solicitudes responden y desde la cuarta la red está caída.
    Opción: 21
    ! USD: La configuración del servicio externo no es válida: se exige https y un tiempo de espera de 0 a 60 segundos. Revise el .env.
    ! EUR: La configuración del servicio externo no es válida: se exige https y un tiempo de espera de 0 a 60 segundos. Revise el .env.
-   Guardados: 0 · ya registrados hoy: 0 · descartados: 2
+   Guardados: 0 · ya registrados: 0 · descartados: 2
 
    Opción: 12
    Id del proyecto: 2
@@ -1090,7 +1091,8 @@ Las tres primeras solicitudes responden y desde la cuarta la red está caída.
 | Tramo | Indicador | Qué se ve |
 |---|---|---|
 | 6.1, opciones 11 y 12 | 3.1.1.G.12 | el dato de la API se valida otra vez y se **guarda**: pedir, validar, guardar e informar (láminas 29-30) |
-| 6.1, opción 21 | 3.1.1.G.12 | «Guardados · ya registrados hoy · descartados»: nada se descarta en silencio (lámina 30) |
+| 6.1, opción 21 | 3.1.1.G.12 | «Guardados · ya registrados · descartados»: nada se descarta en silencio (lámina 30) |
+| 6.1, opciones 12 y 23 | 3.1.1.G.12 | el tipo de cambio se guarda con la **fecha que informa la API** (19-09), no con la de hoy |
 | 6.1, opciones 22 a 25 | 2.1.3.G.5 | R y D del historial; no hay U, porque un dato de la API es evidencia |
 | 6.2 | 3.1.3.G.17 | sin red y sin memoria, el último valor **guardado en la base**, avisado como referencial, y con error claro cuando no hay nada guardado (lámina 16) |
 | 6.3 | 3.1.3.G.17 | degradar antes que interrumpir: el último dato de la sesión, marcado |
