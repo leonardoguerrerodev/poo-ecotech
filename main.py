@@ -77,6 +77,7 @@ PIDE_ID_EMPLEADO = "   Id del empleado: "
 PIDE_ID_PROYECTO = "   Id del proyecto: "
 PIDE_USUARIO = "   Usuario (3 a 20: minúsculas, números, . _ -): "
 INTERRUMPIDO = "\n   Interrumpido. Hasta luego."
+SESION_CADUCADA = "   ! Sesión cerrada por inactividad. Inicie sesión de nuevo."
 AVISO_REFERENCIAL = ("   ! Valor referencial: el servicio no respondió y se muestra "
                      "el último dato obtenido en esta sesión.")
 AVISO_REFERENCIAL_BASE = ("   ! Valor referencial: el servicio no respondió y se muestra "
@@ -675,12 +676,18 @@ def usar_sesion(solicitante: Usuario, nombre: str) -> bool:
             print("   Hasta luego.")
             return False
         if time.monotonic() - ultima_actividad > INACTIVIDAD_MAXIMA:
-            print("   ! Sesión cerrada por inactividad. Inicie sesión de nuevo.")
+            print(SESION_CADUCADA)
             return True
-        if opcion is None or not atender(opcion, solicitante) or not pausar():
+        if opcion is None or not atender(opcion, solicitante):
             print(INTERRUMPIDO)
             return False
-        ultima_actividad = time.monotonic()
+        ultima_actividad = time.monotonic()      # la pausa también cuenta
+        if not pausar():
+            print(INTERRUMPIDO)
+            return False
+        if time.monotonic() - ultima_actividad > INACTIVIDAD_MAXIMA:
+            print(SESION_CADUCADA)
+            return True
         limpiar_y_mostrar_menu(nombre)
 
 
