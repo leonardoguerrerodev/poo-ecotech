@@ -1,5 +1,7 @@
 # EcoTech Solutions — gestión de empleados
 
+> **Para evaluar:** integrantes, versión entregada y comandos para clonar y ejecutar en [`ENTREGA.md`](ENTREGA.md).
+
 Programa de terminal en Python para gestionar empleados, departamentos y proyectos de la empresa
 EcoTech. Lleva a código el diagrama de clases UML de la asignatura *Programación Orientada a Objeto
 Seguro*, guarda los datos en una base SQLite, pide inicio de sesión y consulta dos servicios
