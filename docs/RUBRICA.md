@@ -45,7 +45,7 @@
 **Estado: 22 ✅.** Las dos brechas de la pasada 8 (3.1.1.G.12 y 3.1.2.G.15) se corrigieron el
 23-sep-2026; el seguimiento está en `AUDITORIA.md` §2.13.
 
-## Tabla 2 — Diagrama (`diagramas/modelo_u3.drawio`) ↔ código, miembro por miembro
+## Tabla 2 — Diagrama (`diagramas/EcoTech_UML_VIGENTE.drawio`) ↔ código, miembro por miembro
 
 Convención del diagrama: atributos y métodos de dominio; no el CRUD ni las constantes de clase. El
 comparador busca cada fila del diagrama en su clase (camelCase → snake_case; `-` → `__`, `#` → `_`) y

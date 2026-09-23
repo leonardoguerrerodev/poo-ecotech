@@ -69,7 +69,7 @@ descrito completo en el `README.md`.
 | `ecotech.py` | Las clases del diagrama, la base de datos SQLite, su CRUD y el inicio de sesión |
 | `servicios.py` | El cliente de los servicios externos (clima y tipo de cambio) |
 | `main.py` | El menú de terminal: no contiene SQL ni HTTP |
-| `diagramas/modelo_u3.drawio` | El diagrama de clases vigente, igual al código miembro por miembro |
+| `diagramas/EcoTech_UML_VIGENTE.drawio` | **El diagrama de clases vigente**, igual al código miembro por miembro; con su imagen en `EcoTech_UML_VIGENTE.png` (y versión oscura). Los diagramas de unidades anteriores están en `diagramas/historico/` |
 | `README.md` | Descripción completa: diseño, seguridad y menú |
 | `docs/RUBRICA.md` | Cada indicador de la rúbrica con el archivo y la línea donde está su evidencia |
 | `docs/ANALISIS_IA.md` | Uso de inteligencia artificial: qué se adoptó, modificó o descartó y por qué |

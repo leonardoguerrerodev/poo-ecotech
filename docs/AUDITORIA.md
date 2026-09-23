@@ -282,7 +282,7 @@ foránea del CRUD.
 - Las reglas que cruzan tablas van **en la misma transacción**: mover a una gerente libera el cargo
   anterior en el mismo `with conectar()`, y «el gerente pertenece al departamento» va como `EXISTS`
   dentro del `UPDATE`.
-- Los tres métodos que escriben ganaron `solicitante`, en el código y en `modelo_u2.drawio`.
+- Los tres métodos que escriben ganaron `solicitante`, en el código y en `modelo_u2.drawio` (hoy en `diagramas/historico/`).
 - `exigir_guardado()` rechaza relacionar un objeto sin id; sin eso, `WHERE id = NULL` afecta cero
   filas en silencio.
 
@@ -655,7 +655,7 @@ entrando.
 #### El diagrama y el código, comparados por un programa
 
 La correspondencia UML ↔ código se revisaba leyendo. En esta pasada la comprueba un script que
-extrae los 68 miembros de `modelo_u3.drawio` y busca cada uno en su clase, con su visibilidad y su
+extrae los 68 miembros del diagrama vigente (`EcoTech_UML_VIGENTE.drawio`) y busca cada uno en su clase, con su visibilidad y su
 lista de parámetros. Encontró una diferencia que la lectura había dejado pasar:
 `autenticar(nombre, clave)` en el diagrama y `nombre_usuario` en el código. Corregida en el código;
 hoy son 68 de 68 (`RUBRICA.md`, Tabla 2).

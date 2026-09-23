@@ -51,7 +51,7 @@ cp .env.example .env              # y editar lo que haga falta
 | `main.py` | El menú de terminal. No tiene ni una línea de SQL ni de HTTP: solo llama a las clases |
 | `requirements.txt` | `requests` y sus dependencias, con versión exacta |
 | `.env.example` | Las variables de configuración, sin valores secretos (el `.env` real no se sube) |
-| `diagramas/` | El diagrama vigente, `modelo_u3.drawio`; el de la Unidad 2 (`modelo_u2.drawio`, con sus imágenes) y el de la Unidad 1 (`modelo_final.drawio`) |
+| `diagramas/` | **El diagrama vigente**, `EcoTech_UML_VIGENTE.drawio`, con sus imágenes clara y oscura. En `diagramas/historico/` quedan el de la Unidad 2 (`modelo_u2.drawio`, con sus imágenes) y el de la Unidad 1 (`modelo_final.drawio`) |
 | `docs/AUDITORIA.md` | La auditoría de seguridad del código, por pasadas: lo que encontramos y cómo lo corregimos |
 | `docs/ANALISIS_IA.md` | Qué propuso la IA, qué errores y vulnerabilidades le encontramos y qué hicimos con cada fragmento |
 | `docs/RUBRICA.md` | Los 22 indicadores de la rúbrica, cada uno con dónde está su evidencia, y el diagrama comparado con el código miembro por miembro |
