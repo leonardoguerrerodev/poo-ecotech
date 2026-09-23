@@ -35,6 +35,7 @@ PATRON_TELEFONO = re.compile(r"(\+?56)?[2-9]\d{8}", re.ASCII)
 SEPARADORES = re.compile(r"[\s()\-.]")
 
 SALARIO_MAXIMO = 100_000_000
+MONEDAS_PROYECTO = ("CLP", "USD", "EUR")
 
 INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
@@ -99,7 +100,9 @@ CREATE TABLE IF NOT EXISTS proyecto (
     id           INTEGER PRIMARY KEY,
     nombre       TEXT NOT NULL,
     descripcion  TEXT NOT NULL,
-    fecha_inicio TEXT NOT NULL
+    fecha_inicio TEXT NOT NULL,
+    ciudad       TEXT NOT NULL,
+    moneda       TEXT NOT NULL CHECK (moneda IN ('CLP','USD','EUR'))
 );
 CREATE TABLE IF NOT EXISTS empleado_proyecto (
     empleado_id INTEGER NOT NULL,
@@ -468,12 +471,20 @@ class Departamento(EntidadReportable):
 class Proyecto(EntidadReportable):
     """tabla: proyecto"""
 
+    COLUMNAS = "id, nombre, descripcion, fecha_inicio, ciudad, moneda"
+
     def __init__(self, nombre: str, descripcion: str, fecha_inicio: date,
-                 id: int | None = None):
+                 ciudad: str, moneda: str, id: int | None = None):
+        moneda = moneda.strip().upper()
+        if moneda not in MONEDAS_PROYECTO:
+            raise ValueError("Moneda no soportada. Use: "
+                             + ", ".join(MONEDAS_PROYECTO))
         super().__init__(id)
         self.__nombre = texto(nombre, "El nombre del proyecto")
         self.__descripcion = texto(descripcion, "La descripción", 500)
         self._fecha_inicio = fecha_inicio
+        self.__ciudad = texto(ciudad, "La ciudad", 80)
+        self.__moneda = moneda
         self._registros: list["RegistroTiempo"] = []
         self.__empleados: list["Empleado"] = []
 
@@ -494,12 +505,68 @@ class Proyecto(EntidadReportable):
     def horas_consumidas(self) -> float:
         return sum((r.obtener_horas() for r in self._registros), 0.0)
 
+    def obtener_ciudad(self) -> str:
+        return self.__ciudad
+
+    def obtener_moneda(self) -> str:
+        return self.__moneda
+
     def obtener_resumen(self) -> str:
         return (f"Proyecto: {self.__nombre} | "
                 f"Descripción: {self.__descripcion} | "
                 f"Inicio: {self._fecha_inicio.isoformat()} | "
                 f"Empleados: {len(self.__empleados)} | "
                 f"Horas consumidas: {self.horas_consumidas():.2f}")
+
+    # --- Persistencia (CRUD) ---------------------------------------
+
+    def guardar(self, solicitante: "Usuario") -> int:
+        """C — INSERT."""
+        autorizar(solicitante, "proyectos")
+        if self._id is not None:
+            raise ValueError(f"El proyecto ya está guardado con id {self._id}")
+        with conectar() as con:
+            cur = con.execute(
+                "INSERT INTO proyecto (nombre, descripcion, fecha_inicio,"
+                " ciudad, moneda) VALUES (?, ?, ?, ?, ?)",
+                (self.__nombre, self.__descripcion,
+                 self._fecha_inicio.isoformat(), self.__ciudad, self.__moneda))
+        self._id = cur.lastrowid
+        return self._id
+
+    @classmethod
+    def listar(cls) -> list["Proyecto"]:
+        """R — todos, ordenados por nombre."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM proyecto ORDER BY nombre").fetchall()
+        return [cls._desde_fila(fila) for fila in filas]
+
+    @classmethod
+    def buscar(cls, id: int) -> "Proyecto | None":
+        """R — uno por id."""
+        with conectar() as con:
+            fila = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM proyecto WHERE id = ?",
+                (id,)).fetchone()
+        return None if fila is None else cls._desde_fila(fila)
+
+    def eliminar(self, solicitante: "Usuario") -> bool:
+        """D — se rechaza si tiene horas imputadas: esa historia no se borra."""
+        autorizar(solicitante, "proyectos")
+        with conectar() as con:
+            if con.execute("SELECT 1 FROM registro_tiempo WHERE proyecto_id = ?"
+                           " LIMIT 1", (self._id,)).fetchone():
+                raise ValueError("El proyecto tiene horas registradas: "
+                                 "no se puede eliminar")
+            cur = con.execute("DELETE FROM proyecto WHERE id = ?", (self._id,))
+        return cur.rowcount == 1
+
+    @classmethod
+    def _desde_fila(cls, fila: sqlite3.Row) -> "Proyecto":
+        return cls(fila["nombre"], fila["descripcion"],
+                   date.fromisoformat(fila["fecha_inicio"]), fila["ciudad"],
+                   fila["moneda"], id=fila["id"])
 
 
 class RegistroTiempo(EntidadReportable):
@@ -920,6 +987,21 @@ def _autoverificar() -> None:
     assert temporal.eliminar(admin)
     assert Usuario.buscar_por_nombre("t.temporal") is None, \
         "la cuenta sobrevivió a su empleado"
+
+    # --- Proyecto: CRUD con ciudad y moneda
+    assert _rechaza(lambda: Proyecto("P", "d", contrato, "Valparaíso", "JPY")), \
+        "moneda fuera de la lista"
+    assert _rechaza(lambda: Proyecto("P", "d", contrato, "   ", "CLP")), "ciudad vacía"
+    faena = Proyecto("Parque Eólico Costero", "Montaje de aerogeneradores",
+                     contrato, "Valparaíso", " clp ")
+    assert _rechaza(lambda: faena.guardar(cuenta), PermissionError), \
+        "un EMPLEADO no crea proyectos"
+    id_faena = faena.guardar(admin)
+    leido = Proyecto.buscar(id_faena)
+    assert (leido.obtener_ciudad(), leido.obtener_moneda()) == ("Valparaíso", "CLP")
+    assert [p.obtener_id() for p in Proyecto.listar()] == [id_faena]
+    assert Proyecto.buscar(999) is None
+    assert _rechaza(lambda: faena.guardar(admin)), "doble INSERT de proyecto"
 
     # --- El informe depende de la abstracción, no de cada clase concreta
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
