@@ -71,6 +71,8 @@ PIDE_ID_EMPLEADO = "   Id del empleado: "
 PIDE_ID_PROYECTO = "   Id del proyecto: "
 PIDE_USUARIO = "   Usuario (3 a 20: minúsculas, números, . _ -): "
 INTERRUMPIDO = "\n   Interrumpido. Hasta luego."
+AVISO_REFERENCIAL = ("   ! Valor referencial: el servicio no respondió y se muestra "
+                     "el último dato obtenido en esta sesión.")
 CREDENCIALES_INVALIDAS = ("   ! Credenciales inválidas o cuenta bloqueada "
                           "temporalmente.")
 
@@ -316,6 +318,8 @@ def clima_del_proyecto(_solicitante: Usuario) -> None:
     if proyecto is None:
         return
     datos = SERVICIO.obtener_clima(proyecto.obtener_ciudad())
+    if datos["referencial"]:
+        print(AVISO_REFERENCIAL)
     print(f"   {datos['ciudad']}: {datos['estado']}, {datos['temperatura']} °C, "
           f"humedad {datos['humedad']} %, viento {datos['viento']} km/h.")
     if datos["apto_terreno"]:
@@ -338,7 +342,10 @@ def planilla_del_proyecto(solicitante: Usuario) -> None:
         valor = 1.0                                     # CLP no consulta la API
         print("   Planilla en CLP: el proyecto se paga en pesos, sin conversión.")
     else:
-        valor = SERVICIO.obtener_tipo_cambio(moneda)    # una consulta por planilla
+        cambio = SERVICIO.obtener_tipo_cambio(moneda)   # una consulta por planilla
+        valor = cambio["valor"]
+        if cambio["referencial"]:
+            print(AVISO_REFERENCIAL)
         print(f"   Planilla en {moneda}  (1 {moneda} = {valor:,.2f} CLP hoy)")
     for empleado in empleados:
         salario = empleado.obtener_salario(solicitante)

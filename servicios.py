@@ -82,12 +82,17 @@ class ServicioExterno:
                                                  TIEMPO_LECTURA))
         except ValueError:
             self.__tiempo_espera = None     # se rechaza al consultar: falla cerrado
+        self.__ultimos: dict = {}
 
     def obtener_clima(self, ciudad: str) -> dict:
         if not self._validar_ciudad(ciudad):
             raise ValueError("Ciudad inválida: de 2 a 80 letras, con espacios, "
                              "guion, punto o apóstrofo")
         ciudad = ciudad.strip()
+        return self.__con_respaldo(("clima", ciudad.lower()),
+                                   lambda: self.__clima_de(ciudad))
+
+    def __clima_de(self, ciudad: str) -> dict:
         lugares = self.__consultar(self.__url_geocodificacion, {
             "name": ciudad, "count": 1, "language": "es"}).get("results")
         if not lugares:
@@ -126,14 +131,27 @@ class ServicioExterno:
                              and viento < VIENTO_MAXIMO_TERRENO),
         }
 
-    def obtener_tipo_cambio(self, moneda: str) -> float:
-        """Pesos chilenos por unidad de la moneda. Solo monedas de la lista."""
+    def obtener_tipo_cambio(self, moneda: str) -> dict:
+        """Pesos chilenos por unidad de la moneda, en {"valor", "referencial"}."""
         codigo = self.MONEDAS.get(moneda.strip().upper())
         if codigo is None:
             raise ValueError("Moneda no soportada. Use: "
                              + ", ".join(self.MONEDAS))
-        return self.__extraer_valor(
-            self.__consultar(f"{self.__url_indicadores}/{codigo}"))
+        url = f"{self.__url_indicadores}/{codigo}"
+        return self.__con_respaldo(("cambio", codigo), lambda: {
+            "valor": self.__extraer_valor(self.__consultar(url))})
+
+    def __con_respaldo(self, clave: tuple, consulta) -> dict:
+        """Degradar antes que interrumpir: si el servicio falla, el último dato
+        bueno de esta sesión, marcado como referencial. Sin dato previo, relanza."""
+        try:
+            resultado = consulta()
+        except ServicioNoDisponible:
+            if clave not in self.__ultimos:
+                raise
+            return {**self.__ultimos[clave], "referencial": True}
+        self.__ultimos[clave] = resultado
+        return {**resultado, "referencial": False}
 
     def __extraer_valor(self, datos: dict) -> float:
         """Valida la respuesta del indicador antes de usarla: presencia, tipo y rango."""
@@ -241,7 +259,7 @@ def _autoverificar() -> None:
     with responde(geo, clima(viento=55.0)):
         assert not servicio.obtener_clima(valpo)["apto_terreno"], "viento"
     with responde({"serie": [{"fecha": "2026-09-21", "valor": 958.42}]}) as get:
-        assert math.isclose(servicio.obtener_tipo_cambio("usd"), 958.42)
+        assert math.isclose(servicio.obtener_tipo_cambio("usd")["valor"], 958.42)
     assert get.call_args.args[0] == "https://mindicador.cl/api/dolar"
 
     # --- Entradas que no deben salir a la red
@@ -262,40 +280,40 @@ def _autoverificar() -> None:
                              (requests.ConnectionError, "conexión"),
                              (requests.TooManyRedirects, "No se pudo")):
         with mock.patch.object(requests, "get", side_effect=excepcion("detalle")):
-            assert falla(lambda: servicio.obtener_tipo_cambio("USD"),
+            assert falla(lambda: configurado().obtener_tipo_cambio("USD"),
                          contiene=texto), excepcion
-            assert not falla(lambda: servicio.obtener_tipo_cambio("USD"),
+            assert not falla(lambda: configurado().obtener_tipo_cambio("USD"),
                              contiene="detalle"), "el detalle interno no se muestra"
 
     # --- Códigos HTTP distintos de 200
     for estado, texto in ((400, "400"), (404, "404"), (429, "429"),
                           (500, "falla interna"), (503, "503"), (302, "302")):
         with responde({}, estado=estado):
-            assert falla(lambda: servicio.obtener_tipo_cambio("EUR"),
+            assert falla(lambda: configurado().obtener_tipo_cambio("EUR"),
                          contiene=texto), estado
 
     # --- Cuerpos que no son lo que se esperaba
     no_json = mock.Mock(status_code=200, json=mock.Mock(
         side_effect=requests.JSONDecodeError("x", "<html>", 0)))
     with mock.patch.object(requests, "get", return_value=no_json):
-        assert falla(lambda: servicio.obtener_tipo_cambio("UF"), contiene="JSON")
+        assert falla(lambda: configurado().obtener_tipo_cambio("UF"), contiene="JSON")
     for cuerpo in ([1, 2], {"serie": []}, {"serie": [{"valor": "958"}]},
                    {"serie": [{"valor": 0}]}, {"serie": [{"valor": float("inf")}]},
                    {"serie": [{"valor": True}]}, {"serie": [{"valor": -1}]},
                    {"serie": [{"valor": TIPO_CAMBIO_MAXIMO + 1}]},
                    {"serie": [{"valor": None}]}, {"serie": [{"valor": float("nan")}]}):
         with responde(cuerpo):
-            assert falla(lambda: servicio.obtener_tipo_cambio("UF")), cuerpo
+            assert falla(lambda: configurado().obtener_tipo_cambio("UF")), cuerpo
     with responde({"serie": [{"valor": TIPO_CAMBIO_MAXIMO}]}):
-        assert math.isclose(servicio.obtener_tipo_cambio("UF"), TIPO_CAMBIO_MAXIMO), \
+        assert math.isclose(configurado().obtener_tipo_cambio("UF")["valor"], TIPO_CAMBIO_MAXIMO), \
             "el tope es inclusivo"
     with responde({"generationtime_ms": 0.2}):
-        assert falla(lambda: servicio.obtener_clima("Xyzzy"), ValueError,
+        assert falla(lambda: configurado().obtener_clima("Xyzzy"), ValueError,
                      "No se encontró"), "ciudad inexistente: 200 sin results"
     for actual in ({}, {"current": {"temperature_2m": "18"}},
                    clima(temperatura=None)):
         with responde(geo, actual):
-            assert falla(lambda: servicio.obtener_clima(valpo)), actual
+            assert falla(lambda: configurado().obtener_clima(valpo)), actual
     # --- Configuración por entorno: falla cerrado, sin salir a la red ni tumbar nada
     for variables in ({"ECOTECH_URL_INDICADORES": "http://mindicador.cl/api"},
                       {"ECOTECH_TIEMPO_ESPERA": "abc"}, {"ECOTECH_TIEMPO_ESPERA": "0"},
@@ -325,6 +343,30 @@ def _autoverificar() -> None:
             assert os.environ["ECOTECH_TIEMPO_ESPERA"] == "7", ".env no cargado"
             assert os.environ["ECOTECH_URL_CLIMA"] == "https://real", \
                 "una variable real del entorno le gana al .env"
+
+    # --- Degradar antes que interrumpir: el último dato bueno de la sesión
+    memoria = configurado()
+    with mock.patch.object(requests, "get", side_effect=requests.ConnectionError("x")):
+        assert falla(lambda: memoria.obtener_tipo_cambio("USD"), contiene="conexión"), \
+            "sin dato previo, el error se informa igual"
+    with responde({"serie": [{"valor": 958.42}]}):
+        assert not memoria.obtener_tipo_cambio("USD")["referencial"]
+    with mock.patch.object(requests, "get", side_effect=requests.ConnectionError("x")):
+        respaldo = memoria.obtener_tipo_cambio("usd")
+    assert respaldo["referencial"] and math.isclose(respaldo["valor"], 958.42), \
+        "sin red: el último valor, marcado como referencial"
+    with responde({}, estado=503):
+        assert memoria.obtener_tipo_cambio("USD")["referencial"], "un 5xx también degrada"
+    with responde(geo, clima()):
+        assert not memoria.obtener_clima(valpo)["referencial"]
+    with mock.patch.object(requests, "get", side_effect=requests.ReadTimeout("x")):
+        assert memoria.obtener_clima(f"  {valpo.upper()} ")["referencial"]
+    with mock.patch.object(requests, "get") as get:
+        assert falla(lambda: memoria.obtener_tipo_cambio("JPY"), ValueError), \
+            "una entrada inválida no usa respaldo"
+    with responde({"generationtime_ms": 0.2}):
+        assert falla(lambda: memoria.obtener_clima("Xyzzy"), ValueError), \
+            "una ciudad inexistente no usa respaldo"
 
     trampa = {"results": [{"name": "Valpo\x1b[2J", "country": "Chile",
                            "latitude": 0, "longitude": 0}]}
