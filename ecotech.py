@@ -154,8 +154,8 @@ def crear_tablas() -> None:
         con.executescript(ESQUEMA)
     try:
         os.chmod(RUTA_ACTIVA, 0o600)
-    except OSError as error:
-        print(f"   ! No se pudo restringir los permisos de la base: {error}")
+    except OSError:
+        print("   ! No se pudo restringir los permisos de la base de datos.")
 
 
 def hay_usuarios() -> bool:
@@ -536,23 +536,28 @@ class Usuario:
 
     _PERMISOS = {
         Rol.ADMIN_RRHH: {"empleados", "departamentos", "proyectos", "informes",
-                         "usuarios"},
-        Rol.GERENTE: {"departamentos", "proyectos", "informes"},
-        Rol.EMPLEADO: {"proyectos"},
+                         "usuarios", "tiempo"},
+        Rol.GERENTE: {"departamentos", "proyectos", "informes", "tiempo"},
+        Rol.EMPLEADO: {"tiempo"},
     }
 
-    COLUMNAS = "id, nombre_usuario, hash_clave, rol, intentos_fallidos, bloqueado_hasta"
+    COLUMNAS = ("id, nombre_usuario, hash_clave, rol, intentos_fallidos,"
+                " bloqueado_hasta, empleado_id")
     MAX_INTENTOS = 5
     BLOQUEO = timedelta(minutes=5)
 
     def __init__(self, nombre_usuario: str, clave: str, rol: Rol,
                  id: int | None = None, hash_clave: str | None = None,
                  intentos_fallidos: int = 0,
-                 bloqueado_hasta: datetime | None = None):
+                 bloqueado_hasta: datetime | None = None,
+                 empleado_id: int | None = None):
         nombre_usuario = nombre_usuario.strip().lower()
         if not PATRON_USUARIO.fullmatch(nombre_usuario):
             raise ValueError(f"Nombre de usuario inválido: {nombre_usuario!r}")
+        if rol is Rol.EMPLEADO and empleado_id is None:
+            raise ValueError("Una cuenta EMPLEADO debe estar vinculada a un empleado")
         self._id = id
+        self.__empleado_id = empleado_id
         self.__nombre_usuario = nombre_usuario
         self.__rol = rol
         self.__intentos_fallidos = intentos_fallidos
@@ -601,6 +606,11 @@ class Usuario:
     def tiene_permiso(self, modulo: str) -> bool:
         return modulo in self._PERMISOS.get(self.__rol, set())
 
+    def obtener_empleado(self) -> "Empleado | None":
+        if self.__empleado_id is None:
+            return None
+        return Empleado.buscar(self.__empleado_id)
+
     # --- Persistencia y acceso ---------------------------------------
 
     def guardar(self, solicitante: "Usuario | None" = None) -> int:
@@ -616,9 +626,10 @@ class Usuario:
         condicion = "" if solicitante else " WHERE NOT EXISTS (SELECT 1 FROM usuario)"
         with conectar() as con:
             cur = con.execute(
-                "INSERT INTO usuario (nombre_usuario, hash_clave, rol)"
-                " SELECT ?, ?, ?" + condicion,
-                (self.__nombre_usuario, self.__hash_clave, self.__rol.value))
+                "INSERT INTO usuario (nombre_usuario, hash_clave, rol, empleado_id)"
+                " SELECT ?, ?, ?, ?" + condicion,
+                (self.__nombre_usuario, self.__hash_clave, self.__rol.value,
+                 self.__empleado_id))
         if cur.rowcount != 1:
             raise PermissionError("Ya existe una cuenta: inicie sesión para crear otra")
         self._id = cur.lastrowid
@@ -640,7 +651,8 @@ class Usuario:
         return cls(fila["nombre_usuario"], "", Rol(fila["rol"]), id=fila["id"],
                    hash_clave=fila["hash_clave"],
                    intentos_fallidos=fila["intentos_fallidos"],
-                   bloqueado_hasta=hasta and datetime.fromisoformat(hasta))
+                   bloqueado_hasta=hasta and datetime.fromisoformat(hasta),
+                   empleado_id=fila["empleado_id"])
 
     @classmethod
     def autenticar(cls, nombre_usuario: str, clave: str) -> "Usuario | None":
@@ -710,8 +722,8 @@ class Informe:
                 with open(destino, "w", encoding="utf-8") as archivo:
                     archivo.write(self.obtener_texto())
             return True
-        except OSError as error:
-            print(f"Error al exportar el informe: {error}")
+        except OSError:
+            print("   ! No se pudo escribir el archivo del informe.")
             return False
 
     def obtener_texto(self) -> str:
@@ -739,7 +751,7 @@ def _autoverificar() -> None:
     contrato = date(2024, 3, 1)
     calle, correo = "Calle 1", "j@e.cl"
     admin = Usuario("rrhh.admin", "Clave-RRHH-2026", Rol.ADMIN_RRHH)
-    basico = Usuario("j.bravo", "Clave-Bravo-2026", Rol.EMPLEADO)
+    basico = Usuario("j.bravo", "Clave-Bravo-2026", Rol.EMPLEADO, empleado_id=1)
 
     def nueva(correo: str = "jbravo@ecotech.cl") -> Empleado:
         return Empleado("Juanita Bravo Sepúlveda", "Av. Matta 1234",
@@ -757,7 +769,10 @@ def _autoverificar() -> None:
                                      date(2099, 1, 1), 1000)), "contrato futuro"
     assert _rechaza(lambda: RegistroTiempo(hoy, 25, "x")), "más de 24 horas"
     assert _rechaza(lambda: Departamento("   ")), "nombre en blanco"
-    assert _rechaza(lambda: Usuario("ana", "corta", Rol.EMPLEADO)), "clave corta"
+    assert _rechaza(lambda: Usuario("ana", "corta", Rol.EMPLEADO, empleado_id=1)), \
+        "clave corta"
+    assert _rechaza(lambda: Usuario("ana", "Clave-Ana-2026", Rol.EMPLEADO)), \
+        "EMPLEADO sin empleado vinculado"
     assert _rechaza(lambda: Departamento("Legal\x1b[2J")), "escape de terminal"
     assert _rechaza(lambda: nueva("j\x1bbravo@ecotech.cl")), "correo con escape"
     assert _rechaza(lambda: nueva("a@" + "b" * 260 + ".cl")), "correo sin tope"
@@ -773,11 +788,13 @@ def _autoverificar() -> None:
     assert "Clave-RRHH-2026" not in str(admin.__dict__), "la clave quedó en claro"
     assert admin.tiene_permiso("informes")
     assert not basico.tiene_permiso("informes")
+    assert basico.tiene_permiso("tiempo") and not basico.tiene_permiso("proyectos"), \
+        "el EMPLEADO registra horas pero no administra proyectos"
     n, r, p = Usuario.COSTO
     muestra = Usuario._hashear("Clave-Muestra-2026", secrets.token_bytes(16))
     assert muestra.split("$")[:4] == ["scrypt", str(n), str(r), str(p)], \
         "el hash no registra su costo"
-    sin_formato = Usuario("ana", "", Rol.EMPLEADO, hash_clave="basura")
+    sin_formato = Usuario("ana", "", Rol.EMPLEADO, hash_clave="basura", empleado_id=1)
     assert _rechaza(lambda: sin_formato.verificar_clave("x")), "hash mal formado"
 
     # --- CRUD sobre las dos clases relacionadas
@@ -885,6 +902,24 @@ def _autoverificar() -> None:
     assert Usuario.autenticar("c.rojas", "Clave-Rojas-2026") is not None, \
         "el bloqueo es temporal"
     assert Usuario.buscar_por_nombre("c.rojas")._Usuario__intentos_fallidos == 0
+
+    # --- Usuario → Empleado («identifica a»)
+    cuenta = Usuario("b.soto", "Clave-Soto-2026", Rol.EMPLEADO,
+                     empleado_id=beto.obtener_id())
+    cuenta.guardar(admin)
+    vinculado = Usuario.buscar_por_nombre("b.soto").obtener_empleado()
+    assert vinculado.obtener_id() == beto.obtener_id(), "vínculo sin persistir"
+    assert admin.obtener_empleado() is None, "ADMIN_RRHH sin empleado"
+    assert _rechaza(lambda: Usuario("b.soto.dos", "Clave-Soto-2026", Rol.EMPLEADO,
+                                    empleado_id=beto.obtener_id()).guardar(admin),
+                    sqlite3.IntegrityError), "dos cuentas para un empleado"
+    temporal = nueva("temporal@ecotech.cl")
+    temporal.guardar(admin)
+    Usuario("t.temporal", "Clave-Temp-2026", Rol.EMPLEADO,
+            empleado_id=temporal.obtener_id()).guardar(admin)
+    assert temporal.eliminar(admin)
+    assert Usuario.buscar_por_nombre("t.temporal") is None, \
+        "la cuenta sobrevivió a su empleado"
 
     # --- El informe depende de la abstracción, no de cada clase concreta
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
