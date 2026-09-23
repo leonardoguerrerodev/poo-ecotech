@@ -250,24 +250,37 @@ class Empleado(Persona):
         super().__init__(nombre, direccion, telefono, correo, id)
         self.__fecha_inicio_contrato = fecha_inicio_contrato
         self.__salario = salario
-        self.__registros: list["RegistroTiempo"] = []
-        self._proyectos: list["Proyecto"] = []
 
     def obtener_salario(self, solicitante: "Usuario") -> int:
         autorizar(solicitante, "empleados")
         return self.__salario
 
     def registrar_tiempo(self, proyecto: "Proyecto", fecha: date, horas: float,
-                         descripcion: str) -> "RegistroTiempo":
-        if proyecto not in self._proyectos:
-            raise ValueError("El empleado no está asignado a ese proyecto")
+                         descripcion: str,
+                         solicitante: "Usuario") -> "RegistroTiempo":
+        """C de RegistroTiempo: la composición nace solo desde el empleado."""
+        autorizar(solicitante, "tiempo")
+        if not solicitante.tiene_permiso("empleados"):
+            propio = solicitante.obtener_empleado()
+            if propio is None or propio.obtener_id() != self._id:
+                raise PermissionError("Solo puede registrar sus propias horas")
+        id_empleado = exigir_guardado(self)
+        id_proyecto = exigir_guardado(proyecto)
         if fecha < self.__fecha_inicio_contrato:
             raise ValueError("La fecha es anterior al inicio del contrato")
         if fecha < proyecto._fecha_inicio:
             raise ValueError("La fecha es anterior al inicio del proyecto")
         registro = RegistroTiempo(fecha, horas, descripcion)
-        self.__registros.append(registro)
-        proyecto._registros.append(registro)
+        with conectar() as con:
+            if con.execute("SELECT 1 FROM empleado_proyecto"
+                           " WHERE empleado_id = ? AND proyecto_id = ?",
+                           (id_empleado, id_proyecto)).fetchone() is None:
+                raise ValueError("El empleado no está asignado a ese proyecto")
+            cur = con.execute(
+                "INSERT INTO registro_tiempo (fecha, horas, descripcion,"
+                " empleado_id, proyecto_id) VALUES (?, ?, ?, ?, ?)",
+                (*registro._datos(), id_empleado, id_proyecto))
+        registro._id = cur.lastrowid
         return registro
 
     def obtener_resumen(self) -> str:
@@ -485,25 +498,49 @@ class Proyecto(EntidadReportable):
         self._fecha_inicio = fecha_inicio
         self.__ciudad = texto(ciudad, "La ciudad", 80)
         self.__moneda = moneda
-        self._registros: list["RegistroTiempo"] = []
-        self.__empleados: list["Empleado"] = []
 
-    def asignar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado in self.__empleados:
-            return False
-        self.__empleados.append(empleado)
-        empleado._proyectos.append(self)
-        return True
+    def asignar_empleado(self, empleado: "Empleado",
+                         solicitante: "Usuario") -> bool:
+        """U — una fila en la tabla de la asociación."""
+        autorizar(solicitante, "proyectos")
+        id_proyecto = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "INSERT OR IGNORE INTO empleado_proyecto (empleado_id, proyecto_id)"
+                " VALUES (?, ?)", (id_empleado, id_proyecto))
+        return cur.rowcount == 1
 
-    def desasignar_empleado(self, empleado: "Empleado") -> bool:
-        if empleado not in self.__empleados:
-            return False
-        self.__empleados.remove(empleado)
-        empleado._proyectos.remove(self)
-        return True
+    def desasignar_empleado(self, empleado: "Empleado",
+                            solicitante: "Usuario") -> bool:
+        """U — borra la fila de la asociación; las horas ya imputadas quedan."""
+        autorizar(solicitante, "proyectos")
+        id_proyecto = exigir_guardado(self)
+        id_empleado = exigir_guardado(empleado)
+        with conectar() as con:
+            cur = con.execute(
+                "DELETE FROM empleado_proyecto"
+                " WHERE empleado_id = ? AND proyecto_id = ?",
+                (id_empleado, id_proyecto))
+        return cur.rowcount == 1
+
+    def listar_empleados(self) -> list["Empleado"]:
+        """R — los empleados asignados, leídos de la asociación."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {Empleado.COLUMNAS} FROM empleado WHERE id IN"
+                " (SELECT empleado_id FROM empleado_proyecto WHERE proyecto_id = ?)"
+                " ORDER BY nombre", (self._id,)).fetchall()
+        return [Empleado._desde_fila(fila) for fila in filas]
 
     def horas_consumidas(self) -> float:
-        return sum((r.obtener_horas() for r in self._registros), 0.0)
+        if self._id is None:
+            return 0.0
+        with conectar() as con:
+            fila = con.execute(
+                "SELECT COALESCE(SUM(horas), 0) AS total FROM registro_tiempo"
+                " WHERE proyecto_id = ?", (self._id,)).fetchone()
+        return float(fila["total"])
 
     def obtener_ciudad(self) -> str:
         return self.__ciudad
@@ -514,8 +551,9 @@ class Proyecto(EntidadReportable):
     def obtener_resumen(self) -> str:
         return (f"Proyecto: {self.__nombre} | "
                 f"Descripción: {self.__descripcion} | "
+                f"Ciudad: {self.__ciudad} | Moneda: {self.__moneda} | "
                 f"Inicio: {self._fecha_inicio.isoformat()} | "
-                f"Empleados: {len(self.__empleados)} | "
+                f"Empleados: {len(self.listar_empleados())} | "
                 f"Horas consumidas: {self.horas_consumidas():.2f}")
 
     # --- Persistencia (CRUD) ---------------------------------------
@@ -596,6 +634,24 @@ class RegistroTiempo(EntidadReportable):
 
     def _validar_fecha(self, fecha: date) -> bool:
         return fecha <= date.today()
+
+    # --- Persistencia (CRUD) ---------------------------------------
+    # C: Empleado.registrar_tiempo · D: ON DELETE CASCADE del empleado.
+    # Sin U ni D propios: un registro de horas no se edita, es traza.
+
+    @classmethod
+    def listar(cls, proyecto: "Proyecto") -> list["RegistroTiempo"]:
+        """R — las horas imputadas a un proyecto, por fecha."""
+        with conectar() as con:
+            filas = con.execute(
+                "SELECT id, fecha, horas, descripcion FROM registro_tiempo"
+                " WHERE proyecto_id = ? ORDER BY fecha, id",
+                (proyecto.obtener_id(),)).fetchall()
+        return [cls(date.fromisoformat(fila["fecha"]), fila["horas"],
+                    fila["descripcion"], id=fila["id"]) for fila in filas]
+
+    def _datos(self) -> tuple[str, float, str]:
+        return (self.__fecha.isoformat(), self.__horas, self.__descripcion)
 
 
 class Usuario:
@@ -1003,6 +1059,57 @@ def _autoverificar() -> None:
     assert Proyecto.buscar(999) is None
     assert _rechaza(lambda: faena.guardar(admin)), "doble INSERT de proyecto"
 
+    # --- Asignación y horas: la relación vive en la base
+    otro = nueva("otro@ecotech.cl")
+    otro.guardar(admin)
+    assert faena.asignar_empleado(beto, admin)
+    assert not faena.asignar_empleado(beto, admin), "asignar dos veces"
+    assert faena.asignar_empleado(otro, admin)
+    assert faena.desasignar_empleado(otro, admin)
+    assert not faena.desasignar_empleado(otro, admin), "quitar a quien no estaba"
+    assert _rechaza(lambda: faena.asignar_empleado(otro, cuenta), PermissionError)
+    assert _rechaza(lambda: Proyecto("P", "d", contrato, "Lima", "USD")
+                    .asignar_empleado(beto, admin)), "proyecto sin guardar"
+    assert [e.obtener_id() for e in Proyecto.buscar(id_faena).listar_empleados()] \
+        == [beto.obtener_id()], "otra instancia no ve la asignación"
+
+    dia = date(2025, 6, 2)
+    tardio = Proyecto("Planta Solar Norte", "Obra civil", date(2025, 1, 1),
+                      "Madrid", "EUR")
+    tardio.guardar(admin)
+    tardio.asignar_empleado(beto, admin)
+    assert _rechaza(lambda: otro.registrar_tiempo(faena, dia, 8, "x", admin)), \
+        "sin asignación"
+    assert _rechaza(lambda: beto.registrar_tiempo(faena, date(2024, 1, 2), 8, "x", admin)), \
+        "antes del contrato"
+    assert _rechaza(lambda: beto.registrar_tiempo(tardio, date(2024, 6, 3), 8, "x", admin)), \
+        "antes del inicio del proyecto"
+    assert _rechaza(lambda: beto.registrar_tiempo(faena, hoy + timedelta(days=1), 8, "x",
+                                                  admin)), "fecha futura"
+    assert _rechaza(lambda: beto.registrar_tiempo(faena, dia, 25, "x", admin)), "25 horas"
+    registro = beto.registrar_tiempo(faena, dia, 7.5, "Montaje de torres", admin)
+    assert registro.obtener_id() is not None
+    beto.registrar_tiempo(faena, dia, 1.5, "Informe de avance", cuenta)
+    faena.asignar_empleado(otro, admin)             # solo el permiso lo detiene
+    assert _rechaza(lambda: otro.registrar_tiempo(faena, dia, 1, "x", cuenta),
+                    PermissionError), "un EMPLEADO registrando a nombre de otro"
+    faena.desasignar_empleado(otro, admin)
+    assert _rechaza(lambda: beto.registrar_tiempo(faena, dia, 1, "x", basico),
+                    PermissionError), "un EMPLEADO cuyo empleado ya no existe"
+    copia_faena = Proyecto.buscar(id_faena)
+    assert copia_faena.horas_consumidas() == 9.0
+    assert [r.obtener_horas() for r in RegistroTiempo.listar(faena)] == [7.5, 1.5]
+    assert "Empleados: 1 | Horas consumidas: 9.00" in copia_faena.obtener_resumen()
+    assert _rechaza(lambda: faena.eliminar(admin)), "proyecto con horas imputadas"
+    assert _rechaza(lambda: faena.eliminar(cuenta), PermissionError)
+    assert Proyecto.buscar(id_faena) is not None, "el rechazo no borró nada"
+
+    assert beto.eliminar(admin)
+    assert faena.horas_consumidas() == 0.0 and faena.listar_empleados() == [], \
+        "borrar el empleado arrastra horas y asignaciones"
+    assert Usuario.buscar_por_nombre("b.soto") is None, "y su cuenta"
+    assert faena.eliminar(admin) and Proyecto.buscar(id_faena) is None
+
     # --- El informe depende de la abstracción, no de cada clase concreta
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
                              admin).obtener_texto()
@@ -1030,4 +1137,4 @@ if __name__ == "__main__":
         finally:
             os.chdir(original)
     print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento"
-          " · inicio de sesión y bloqueo")
+          " · proyectos y horas · inicio de sesión y bloqueo")
