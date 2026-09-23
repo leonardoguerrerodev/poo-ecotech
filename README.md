@@ -16,23 +16,45 @@ se usa el último valor conocido avisando que es referencial.
 **Versión entregada:** el último commit de `main` hasta el **23-09-2026 a las 23:59, hora de Chile**.
 El comando `git checkout` de abajo deja el repositorio exactamente en esa versión.
 
-Requiere **Python 3.11 o superior** e internet para las opciones que consultan servicios (11, 12 y 21).
+**Requisitos:** Python 3.11 o superior, Git e internet (solo para las opciones de clima y tipo de
+cambio: 11, 12 y 21).
+
+**Linux y Mac:**
 
 ```bash
 git clone https://github.com/leonardoguerrerodev/poo-ecotech.git
 cd poo-ecotech
 git checkout $(git rev-list -n 1 --before="2026-09-23 23:59:59 -0300" main)
-
 python3 -m venv .venv
-source .venv/bin/activate          # En Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
-
-python3 ecotech.py                 # autoverificación del sistema (base temporal): termina en OK
-python3 servicios.py               # autoverificación de las APIs, sin conectarse: termina en OK
-python3 main.py                    # el programa
+python3 ecotech.py
+python3 servicios.py
+python3 main.py
 ```
 
-En Windows, si `python3` no existe, se usa `python` o `py`.
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/leonardoguerrerodev/poo-ecotech.git
+cd poo-ecotech
+git checkout (git rev-list -n 1 --before="2026-09-23 23:59:59 -0300" main)
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+py ecotech.py
+py servicios.py
+py main.py
+```
+
+Si PowerShell no deja activar el entorno, ejecutar antes
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+**Qué hace cada comando:**
+- `git checkout …` deja el código en la versión entregada.
+- `ecotech.py` es la prueba automática del sistema, sobre una base temporal: debe terminar en `OK`.
+- `servicios.py` es la prueba automática de las APIs, sin internet: debe terminar en `OK`.
+- `main.py` abre el programa.
 
 **Primer uso:**
 - **No hay usuarios ni claves en el código.** La primera vez, el programa pide crear la cuenta de
