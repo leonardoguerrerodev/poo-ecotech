@@ -684,8 +684,8 @@ class Usuario:
         self.__empleado_id = empleado_id
         self.__nombre_usuario = nombre_usuario
         self.__rol = rol
-        self.__intentos_fallidos = intentos_fallidos    # NOSONAR: se lee en autenticar()
-        self.__bloqueado_hasta = bloqueado_hasta        # NOSONAR: se lee en autenticar()
+        self.__intentos_fallidos = intentos_fallidos
+        self.__bloqueado_hasta = bloqueado_hasta
         if hash_clave is not None:
             self.__hash_clave = hash_clave
         else:
