@@ -402,7 +402,13 @@ def iniciar_sesion() -> tuple[Usuario, str]:
         if not nombre or not clave:
             print("   ! Usuario y clave son obligatorios.")
             continue
-        usuario = Usuario.autenticar(nombre, clave)
+        try:
+            usuario = Usuario.autenticar(nombre, clave)
+        except ValueError:
+            # Hash corrupto en la base o clave que no se puede codificar
+            # (UnicodeEncodeError hereda de ValueError). Mismo mensaje que
+            # una clave mala: el login no revela nada sobre la cuenta.
+            usuario = None
         if usuario is not None:
             return usuario, nombre.lower()
         print(CREDENCIALES_INVALIDAS)
