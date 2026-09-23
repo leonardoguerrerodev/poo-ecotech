@@ -315,7 +315,7 @@ def _autoverificar() -> None:
         with responde(geo, actual):
             assert falla(lambda: configurado().obtener_clima(valpo)), actual
     # --- Configuración por entorno: falla cerrado, sin salir a la red ni tumbar nada
-    for variables in ({"ECOTECH_URL_INDICADORES": "http://mindicador.cl/api"},
+    for variables in ({"ECOTECH_URL_INDICADORES": URL_INDICADORES.replace("https", "http", 1)},
                       {"ECOTECH_TIEMPO_ESPERA": "abc"}, {"ECOTECH_TIEMPO_ESPERA": "0"},
                       {"ECOTECH_TIEMPO_ESPERA": "61"}, {"ECOTECH_TIEMPO_ESPERA": "nan"}):
         inseguro = configurado(**variables)
@@ -324,7 +324,7 @@ def _autoverificar() -> None:
             assert falla(lambda s=inseguro: s.obtener_tipo_cambio("USD"),
                          contiene="configuración"), variables
             get.assert_not_called()
-    fuga = configurado(ECOTECH_URL_INDICADORES="http://interno.ecotech.cl")
+    fuga = configurado(ECOTECH_URL_INDICADORES="interno.ecotech.cl/api")
     assert not falla(lambda: fuga.obtener_tipo_cambio("USD"), contiene="interno"), \
         "el mensaje no repite la dirección configurada"
     propio = configurado(ECOTECH_URL_INDICADORES="https://espejo.ejemplo.cl/api/",

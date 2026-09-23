@@ -210,8 +210,8 @@ coincidía con el código, una cifra sumada de memoria— y los atrapó un contr
 relectura.
 
 En el cierre de la Unidad 3 revisamos el código cliente con los cinco aspectos que pide el docente
-(credenciales, protocolo, tiempo de espera, manejo de errores y uso de la respuesta) y registramos 7
-decisiones más: **5 se modificaron y 2 se descartaron**; entre ellas, una prueba que habría pasado por
+(credenciales, protocolo, tiempo de espera, manejo de errores y uso de la respuesta) y registramos 8
+decisiones más: **6 se modificaron y 2 se descartaron**; entre ellas, una prueba que habría pasado por
 el motivo equivocado y un comentario de supresión que el propio analizador rechazaba.
 
 El detalle, fila por fila, está en `docs/ANALISIS_IA.md`.
