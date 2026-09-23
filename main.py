@@ -11,11 +11,11 @@ solicitud HTTP: viven en `ecotech.py` y en `servicios.py`.
 import getpass
 import sqlite3
 import time
-from datetime import date
+from datetime import date, datetime
 
 from ecotech import (MONEDAS_PROYECTO, Departamento, Empleado, Informe,
-                     Proyecto, Rol, Usuario, autorizar, crear_tablas,
-                     hay_usuarios)
+                     Proyecto, RegistroClima, Rol, TipoCambio, Usuario,
+                     autorizar, crear_tablas, hay_usuarios)
 from servicios import ServicioExterno, ServicioNoDisponible
 
 MENU = """
@@ -41,6 +41,11 @@ MENU = """
    16. Proyectos                 19. Registrar horas
    17. Asignar empleado          20. Eliminar proyecto
 
+   H — HISTORIAL DE LAS APIS
+   21. Guardar cambio del día    24. Borrar registro de clima
+   22. Historial de clima        25. Borrar tipo de cambio
+   23. Historial tipo de cambio
+
    Escriba "x" para cancelar la acción en curso   ·   0. salir
 =================================================================="""
 
@@ -51,7 +56,7 @@ MENU = """
 MAXIMO_ENTERO = 10**9
 
 PIDEN_DATOS = {"2", "3", "6", "7", "8", "9", "10", "11", "12", "13", "14",
-               "15", "17", "18", "19", "20"}
+               "15", "17", "18", "19", "20", "22", "24", "25"}
 
 # Control de flujo: el permiso se revisa antes de pedir un solo dato. Los
 # métodos de las clases lo vuelven a revisar al escribir.
@@ -60,7 +65,8 @@ PERMISO = {"1": "empleados", "2": "departamentos", "3": "empleados",
            "9": "departamentos", "10": "empleados", "11": "proyectos",
            "12": "empleados", "13": "informes", "14": "usuarios",
            "15": "proyectos", "17": "proyectos", "18": "proyectos",
-           "19": "tiempo", "20": "proyectos"}
+           "19": "tiempo", "20": "proyectos", "21": "proyectos",
+           "24": "proyectos", "25": "proyectos"}
 
 INACTIVIDAD_MAXIMA = 10 * 60                # segundos sin actividad antes de cerrar la sesión
 ROLES = {"1": Rol.ADMIN_RRHH, "2": Rol.GERENTE, "3": Rol.EMPLEADO}
@@ -73,6 +79,8 @@ PIDE_USUARIO = "   Usuario (3 a 20: minúsculas, números, . _ -): "
 INTERRUMPIDO = "\n   Interrumpido. Hasta luego."
 AVISO_REFERENCIAL = ("   ! Valor referencial: el servicio no respondió y se muestra "
                      "el último dato obtenido en esta sesión.")
+AVISO_REFERENCIAL_BASE = ("   ! Valor referencial: el servicio no respondió y se muestra "
+                          "el último dato guardado en la base.")
 CREDENCIALES_INVALIDAS = ("   ! Credenciales inválidas o cuenta bloqueada "
                           "temporalmente.")
 
@@ -313,11 +321,19 @@ def buscar_proyecto() -> Proyecto | None:
     return buscar_o_avisar(Proyecto, pedir_entero(PIDE_ID_PROYECTO))
 
 
-def clima_del_proyecto(_solicitante: Usuario) -> None:
+def clima_del_proyecto(solicitante: Usuario) -> None:
     proyecto = buscar_proyecto()
     if proyecto is None:
         return
-    datos = SERVICIO.obtener_clima(proyecto.obtener_ciudad())
+    try:
+        datos = SERVICIO.obtener_clima(proyecto.obtener_ciudad())
+    except ServicioNoDisponible:
+        guardado = RegistroClima.ultimo(proyecto)
+        if guardado is None:
+            raise
+        print(AVISO_REFERENCIAL_BASE)
+        print(f"   {guardado.obtener_resumen()}")
+        return
     if datos["referencial"]:
         print(AVISO_REFERENCIAL)
     print(f"   {datos['ciudad']}: {datos['estado']}, {datos['temperatura']} °C, "
@@ -326,6 +342,30 @@ def clima_del_proyecto(_solicitante: Usuario) -> None:
         print("   Condiciones aptas para trabajo en terreno.")
     else:
         print("   ! Riesgo para trabajo en terreno: considere reprogramar.")
+    if not datos["referencial"]:
+        registro = RegistroClima(datetime.now(), datos["ciudad"], datos["temperatura"],
+                                 datos["humedad"], datos["viento"], datos["estado"],
+                                 datos["apto_terreno"])
+        print("   Guardado en el historial del proyecto (registro "
+              f"{registro.guardar(proyecto, solicitante)}).")
+
+
+def tipo_cambio_del_dia(moneda: str, solicitante: Usuario) -> float:
+    """Pedir, validar, guardar e informar, con respaldo en memoria y en la base."""
+    try:
+        cambio = SERVICIO.obtener_tipo_cambio(moneda)
+    except ServicioNoDisponible:
+        guardado = TipoCambio.ultimo(moneda)
+        if guardado is None:
+            raise
+        print(AVISO_REFERENCIAL_BASE)
+        print(f"   {guardado.obtener_resumen()}")
+        return guardado.obtener_valor()
+    if cambio["referencial"]:
+        print(AVISO_REFERENCIAL)
+    elif TipoCambio(moneda, date.today(), cambio["valor"]).guardar(solicitante):
+        print("   Tipo de cambio del día guardado en el historial.")
+    return cambio["valor"]
 
 
 def planilla_del_proyecto(solicitante: Usuario) -> None:
@@ -342,11 +382,8 @@ def planilla_del_proyecto(solicitante: Usuario) -> None:
         valor = 1.0                                     # CLP no consulta la API
         print("   Planilla en CLP: el proyecto se paga en pesos, sin conversión.")
     else:
-        cambio = SERVICIO.obtener_tipo_cambio(moneda)   # una consulta por planilla
-        valor = cambio["valor"]
-        if cambio["referencial"]:
-            print(AVISO_REFERENCIAL)
-        print(f"   Planilla en {moneda}  (1 {moneda} = {valor:,.2f} CLP hoy)")
+        valor = tipo_cambio_del_dia(moneda, solicitante)   # una consulta por planilla
+        print(f"   Planilla en {moneda}  (1 {moneda} = {valor:,.2f} CLP)")
     for empleado in empleados:
         salario = empleado.obtener_salario(solicitante)
         linea = f"   {empleado.obtener_nombre()}: {salario:,} CLP"
@@ -450,6 +487,62 @@ def eliminar_proyecto(solicitante: Usuario) -> None:
         print("   Proyecto eliminado, junto con sus asignaciones.")
 
 
+# --- Historial de las APIs: C, R y D, sin U (un dato de la API es evidencia) --
+
+def guardar_tipos_de_cambio(solicitante: Usuario) -> None:
+    """21 · Pedir, validar, guardar e informar cuántos se guardaron."""
+    guardados = repetidos = descartados = 0
+    for moneda in TipoCambio.MONEDAS:
+        try:
+            cambio = SERVICIO.obtener_tipo_cambio(moneda)
+        except ServicioNoDisponible as error:
+            print(f"   ! {moneda}: {error}")
+            descartados += 1
+            continue
+        if cambio["referencial"]:
+            print(f"   ! {moneda}: el servicio no respondió; un valor referencial "
+                  "no se guarda.")
+            descartados += 1
+        elif TipoCambio(moneda, date.today(), cambio["valor"]).guardar(solicitante):
+            guardados += 1
+        else:
+            repetidos += 1
+    print(f"   Guardados: {guardados} · ya registrados hoy: {repetidos} · "
+          f"descartados: {descartados}")
+
+
+def historial_de_clima(_solicitante: Usuario) -> None:
+    proyecto = buscar_proyecto()
+    if proyecto is None:
+        return
+    registros = RegistroClima.listar(proyecto)
+    if not registros:
+        print("   (el proyecto no tiene consultas de clima guardadas)")
+    for registro in registros:
+        print(f"   [{registro.obtener_id()}] {registro.obtener_resumen()}")
+
+
+def listar_tipos_de_cambio() -> None:
+    tipos = TipoCambio.listar()
+    if not tipos:
+        print("   (no hay tipos de cambio guardados)")
+    for tipo in tipos:
+        print(f"   [{tipo.obtener_id()}] {tipo.obtener_resumen()}")
+
+
+def borrar_registro_de_clima(solicitante: Usuario) -> None:
+    registro = buscar_o_avisar(RegistroClima,
+                               pedir_entero("   Id del registro de clima: "))
+    if registro and registro.eliminar(solicitante):
+        print("   Registro de clima eliminado.")
+
+
+def borrar_tipo_de_cambio(solicitante: Usuario) -> None:
+    tipo = buscar_o_avisar(TipoCambio, pedir_entero("   Id del tipo de cambio: "))
+    if tipo and tipo.eliminar(solicitante):
+        print("   Tipo de cambio eliminado.")
+
+
 # --- Despacho ---------------------------------------------------------
 
 ACCIONES = {
@@ -464,6 +557,9 @@ ACCIONES = {
     "15": crear_proyecto, "16": lambda _: listar_proyectos(),              # P
     "17": asignar_a_proyecto, "18": quitar_de_proyecto,
     "19": registrar_horas, "20": eliminar_proyecto,
+    "21": guardar_tipos_de_cambio, "22": historial_de_clima,               # H
+    "23": lambda _: listar_tipos_de_cambio(),
+    "24": borrar_registro_de_clima, "25": borrar_tipo_de_cambio,
 }
 
 

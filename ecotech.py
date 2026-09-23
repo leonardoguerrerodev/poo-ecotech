@@ -37,6 +37,7 @@ SEPARADORES = re.compile(r"[\s()\-.]")
 
 SALARIO_MAXIMO = 100_000_000
 MONEDAS_PROYECTO = ("CLP", "USD", "EUR")
+TIPO_CAMBIO_MAXIMO = 1_000_000
 
 INICIOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
@@ -132,6 +133,25 @@ CREATE TABLE IF NOT EXISTS usuario (
     bloqueado_hasta   TEXT,
     empleado_id    INTEGER UNIQUE,
     FOREIGN KEY (empleado_id) REFERENCES empleado(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS registro_clima (
+    id             INTEGER PRIMARY KEY,
+    proyecto_id    INTEGER NOT NULL,
+    fecha_consulta TEXT    NOT NULL,
+    ciudad         TEXT    NOT NULL,
+    temperatura    REAL    NOT NULL CHECK (temperatura BETWEEN -90 AND 60),
+    humedad        INTEGER NOT NULL CHECK (humedad BETWEEN 0 AND 100),
+    viento         REAL    NOT NULL CHECK (viento >= 0),
+    estado         TEXT    NOT NULL,
+    apto_terreno   INTEGER NOT NULL CHECK (apto_terreno IN (0, 1)),
+    FOREIGN KEY (proyecto_id) REFERENCES proyecto(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS tipo_cambio (
+    id     INTEGER PRIMARY KEY,
+    moneda TEXT NOT NULL CHECK (moneda IN ('USD','EUR')),
+    fecha  TEXT NOT NULL,
+    valor  REAL NOT NULL CHECK (valor > 0 AND valor <= 1000000),
+    UNIQUE (moneda, fecha)
 );
 """
 
@@ -655,6 +675,180 @@ class RegistroTiempo(EntidadReportable):
         return (self.__fecha.isoformat(), self.__horas, self.__descripcion)
 
 
+class RegistroClima(EntidadReportable):
+    """tabla: registro_clima — lo que informó el servicio de clima para un proyecto."""
+
+    COLUMNAS = ("id, fecha_consulta, ciudad, temperatura, humedad, viento, estado,"
+                " apto_terreno")
+
+    def __init__(self, fecha_consulta: datetime, ciudad: str, temperatura: float,
+                 humedad: int, viento: float, estado: str, apto_terreno: bool,
+                 id: int | None = None):
+        for campo, valor, minimo, maximo in (("temperatura", temperatura, -90, 60),
+                                             ("humedad", humedad, 0, 100),
+                                             ("viento", viento, 0, 500)):
+            if (isinstance(valor, bool) or not isinstance(valor, (int, float))
+                    or not math.isfinite(valor) or not minimo <= valor <= maximo):
+                raise ValueError(f"Dato de clima fuera de rango: {campo}")
+        super().__init__(id)
+        self.__fecha_consulta = fecha_consulta
+        self.__ciudad = texto(ciudad, "La ciudad")
+        self.__temperatura = float(temperatura)
+        self.__humedad = int(humedad)
+        self.__viento = float(viento)
+        self.__estado = texto(estado, "El estado del clima", 40)
+        self.__apto_terreno = bool(apto_terreno)
+
+    def obtener_resumen(self) -> str:
+        return (f"Clima {self.__fecha_consulta:%Y-%m-%d %H:%M} | {self.__ciudad} | "
+                f"{self.__estado}, {self.__temperatura:.1f} °C, humedad "
+                f"{self.__humedad} %, viento {self.__viento:.1f} km/h | "
+                + ("apto para terreno" if self.__apto_terreno else "riesgo en terreno"))
+
+    # --- Persistencia (CRUD) ---------------------------------------
+    # C: guardar · R: listar, buscar, ultimo · D: eliminar. Sin U: es evidencia.
+
+    def guardar(self, proyecto: "Proyecto", solicitante: "Usuario") -> int:
+        """C — INSERT, ligado al proyecto consultado."""
+        autorizar(solicitante, "proyectos")
+        if self._id is not None:
+            raise ValueError(f"El registro ya está guardado con id {self._id}")
+        id_proyecto = exigir_guardado(proyecto)
+        with conectar() as con:
+            cur = con.execute(
+                "INSERT INTO registro_clima (proyecto_id, fecha_consulta, ciudad,"
+                " temperatura, humedad, viento, estado, apto_terreno)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (id_proyecto, self.__fecha_consulta.isoformat(timespec="seconds"),
+                 self.__ciudad, self.__temperatura, self.__humedad, self.__viento,
+                 self.__estado, int(self.__apto_terreno)))
+        self._id = cur.lastrowid
+        return self._id
+
+    @classmethod
+    def listar(cls, proyecto: "Proyecto") -> list["RegistroClima"]:
+        """R — el historial de un proyecto, del más reciente al más antiguo."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM registro_clima WHERE proyecto_id = ?"
+                " ORDER BY fecha_consulta DESC, id DESC",
+                (proyecto.obtener_id(),)).fetchall()
+        return [cls._desde_fila(fila) for fila in filas]
+
+    @classmethod
+    def ultimo(cls, proyecto: "Proyecto") -> "RegistroClima | None":
+        """R — el último valor conocido: respaldo cuando la red falla."""
+        registros = cls.listar(proyecto)
+        return registros[0] if registros else None
+
+    @classmethod
+    def buscar(cls, id: int) -> "RegistroClima | None":
+        """R — uno por id."""
+        with conectar() as con:
+            fila = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM registro_clima WHERE id = ?",
+                (id,)).fetchone()
+        return None if fila is None else cls._desde_fila(fila)
+
+    def eliminar(self, solicitante: "Usuario") -> bool:
+        """D"""
+        autorizar(solicitante, "proyectos")
+        with conectar() as con:
+            cur = con.execute("DELETE FROM registro_clima WHERE id = ?", (self._id,))
+        return cur.rowcount == 1
+
+    @classmethod
+    def _desde_fila(cls, fila: sqlite3.Row) -> "RegistroClima":
+        return cls(datetime.fromisoformat(fila["fecha_consulta"]), fila["ciudad"],
+                   fila["temperatura"], fila["humedad"], fila["viento"],
+                   fila["estado"], bool(fila["apto_terreno"]), id=fila["id"])
+
+
+class TipoCambio(EntidadReportable):
+    """tabla: tipo_cambio — el valor del día de una moneda, según mindicador.cl."""
+
+    COLUMNAS = "id, moneda, fecha, valor"
+    MONEDAS = ("USD", "EUR")
+
+    def __init__(self, moneda: str, fecha: date, valor: float,
+                 id: int | None = None):
+        moneda = moneda.strip().upper()
+        if moneda not in self.MONEDAS:
+            raise ValueError("Moneda no soportada. Use: " + ", ".join(self.MONEDAS))
+        if fecha > date.today():
+            raise ValueError(f"Tipo de cambio con fecha futura: {fecha.isoformat()}")
+        if (isinstance(valor, bool) or not isinstance(valor, (int, float))
+                or not math.isfinite(valor) or not 0 < valor <= TIPO_CAMBIO_MAXIMO):
+            raise ValueError("Tipo de cambio fuera de rango")
+        super().__init__(id)
+        self.__moneda = moneda
+        self.__fecha = fecha
+        self.__valor = float(valor)
+
+    def obtener_valor(self) -> float:
+        return self.__valor
+
+    def obtener_resumen(self) -> str:
+        return (f"Tipo de cambio {self.__fecha.isoformat()} | 1 {self.__moneda} = "
+                f"{self.__valor:,.2f} CLP")
+
+    # --- Persistencia (CRUD) ---------------------------------------
+    # C: guardar · R: listar, buscar, ultimo · D: eliminar. Sin U: es evidencia.
+
+    def guardar(self, solicitante: "Usuario") -> bool:
+        """C — True si es nuevo; False si ese día ya estaba guardado (UNIQUE)."""
+        autorizar(solicitante, "proyectos")
+        if self._id is not None:
+            raise ValueError(f"El tipo de cambio ya está guardado con id {self._id}")
+        with conectar() as con:
+            cur = con.execute(
+                "INSERT INTO tipo_cambio (moneda, fecha, valor) VALUES (?, ?, ?)"
+                " ON CONFLICT (moneda, fecha) DO NOTHING",
+                (self.__moneda, self.__fecha.isoformat(), self.__valor))
+        if cur.rowcount == 1:
+            self._id = cur.lastrowid
+        return cur.rowcount == 1
+
+    @classmethod
+    def listar(cls) -> list["TipoCambio"]:
+        """R — todos, del más reciente al más antiguo."""
+        with conectar() as con:
+            filas = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM tipo_cambio"
+                " ORDER BY fecha DESC, moneda").fetchall()
+        return [cls._desde_fila(fila) for fila in filas]
+
+    @classmethod
+    def ultimo(cls, moneda: str) -> "TipoCambio | None":
+        """R — el último valor conocido de una moneda: respaldo sin red."""
+        with conectar() as con:
+            fila = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM tipo_cambio WHERE moneda = ?"
+                " ORDER BY fecha DESC LIMIT 1", (moneda.strip().upper(),)).fetchone()
+        return None if fila is None else cls._desde_fila(fila)
+
+    @classmethod
+    def buscar(cls, id: int) -> "TipoCambio | None":
+        """R — uno por id."""
+        with conectar() as con:
+            fila = con.execute(
+                f"SELECT {cls.COLUMNAS} FROM tipo_cambio WHERE id = ?",
+                (id,)).fetchone()
+        return None if fila is None else cls._desde_fila(fila)
+
+    def eliminar(self, solicitante: "Usuario") -> bool:
+        """D"""
+        autorizar(solicitante, "proyectos")
+        with conectar() as con:
+            cur = con.execute("DELETE FROM tipo_cambio WHERE id = ?", (self._id,))
+        return cur.rowcount == 1
+
+    @classmethod
+    def _desde_fila(cls, fila: sqlite3.Row) -> "TipoCambio":
+        return cls(fila["moneda"], date.fromisoformat(fila["fecha"]), fila["valor"],
+                   id=fila["id"])
+
+
 class Usuario:
     """tabla: usuario — credencial de acceso, no es entidad reportable."""
 
@@ -1115,6 +1309,64 @@ def _autoverificar() -> None:
     assert Usuario.buscar_por_nombre(soto) is None, "y su cuenta"
     assert faena.eliminar(admin) and Proyecto.buscar(id_faena) is None
 
+    # --- Datos de las APIs: se validan otra vez y se guardan (C, R y D, sin U)
+    ahora = datetime(2025, 6, 2, 9, 30)
+
+    def clima_de(**cambios) -> RegistroClima:
+        datos = {"fecha_consulta": ahora, "ciudad": "Madrid, España",
+                 "temperatura": 27.1, "humedad": 20, "viento": 0.8,
+                 "estado": "nublado", "apto_terreno": True, **cambios}
+        return RegistroClima(**datos)
+
+    for malo in ({"humedad": 101}, {"humedad": -1}, {"temperatura": float("nan")},
+                 {"viento": -3}, {"temperatura": True}, {"estado": "x\x1b[2J"},
+                 {"ciudad": "  "}):
+        assert _rechaza(lambda m=malo: clima_de(**m)), malo
+    registro = clima_de()
+    assert _rechaza(lambda: registro.guardar(tardio, basico), PermissionError)
+    assert _rechaza(lambda: registro.guardar(Proyecto("P", "d", contrato, valpo, "CLP"),
+                                             admin)), "proyecto sin guardar"
+    id_clima = registro.guardar(tardio, admin)
+    clima_de(fecha_consulta=ahora + timedelta(hours=3), temperatura=30.0).guardar(tardio, admin)
+    copia_tardio = Proyecto.buscar(tardio.obtener_id())
+    assert len(RegistroClima.listar(copia_tardio)) == 2
+    assert "30.0 °C" in RegistroClima.ultimo(copia_tardio).obtener_resumen(), \
+        "el último valor conocido es el más reciente"
+    assert RegistroClima.buscar(id_clima).obtener_resumen() == registro.obtener_resumen()
+    assert _rechaza(lambda: RegistroClima.buscar(id_clima).eliminar(basico), PermissionError)
+    assert RegistroClima.buscar(id_clima).eliminar(admin)
+    assert RegistroClima.buscar(id_clima) is None
+    with conectar() as con:                          # la base repite la regla
+        assert _rechaza(lambda: con.execute(
+            "INSERT INTO registro_clima (proyecto_id, fecha_consulta, ciudad,"
+            " temperatura, humedad, viento, estado, apto_terreno)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (tardio.obtener_id(), ahora.isoformat(), "X", 20, 150, 1, "x", 1)),
+            sqlite3.IntegrityError), "CHECK de humedad"
+
+    for moneda, fecha, valor in (("JPY", hoy, 900), ("USD", hoy + timedelta(days=1), 900),
+                                 ("USD", hoy, 0), ("USD", hoy, TIPO_CAMBIO_MAXIMO + 1),
+                                 ("USD", hoy, float("inf")), ("CLP", hoy, 1)):
+        assert _rechaza(lambda m=moneda, f=fecha, v=valor: TipoCambio(m, f, v)), \
+            (moneda, valor)
+    dolar = TipoCambio(" usd ", date(2025, 6, 2), 945.87)
+    assert _rechaza(lambda: dolar.guardar(basico), PermissionError)
+    assert dolar.guardar(admin), "un día nuevo se guarda"
+    assert not TipoCambio("USD", date(2025, 6, 2), 950.0).guardar(admin), \
+        "el mismo día no se repite (UNIQUE)"
+    TipoCambio("USD", date(2025, 6, 3), 948.10).guardar(admin)
+    TipoCambio("EUR", date(2025, 6, 3), 1081.49).guardar(admin)
+    assert math.isclose(TipoCambio.ultimo("usd").obtener_valor(), 948.10), \
+        "el último valor conocido es el de la fecha más reciente"
+    assert len(TipoCambio.listar()) == 3
+    assert _rechaza(lambda: TipoCambio.buscar(dolar.obtener_id()).eliminar(basico),
+                    PermissionError)
+    assert TipoCambio.buscar(dolar.obtener_id()).eliminar(admin)
+    assert len(TipoCambio.listar()) == 2
+    clima_de().guardar(tardio, admin)
+    assert tardio.eliminar(admin) and RegistroClima.listar(copia_tardio) == [], \
+        "borrar el proyecto borra su historial de clima (composición)"
+
     # --- El informe depende de la abstracción, no de cada clase concreta
     salida = Informe.generar("Dotación", [Departamento("Legal"), nueva()],
                              admin).obtener_texto()
@@ -1142,4 +1394,4 @@ if __name__ == "__main__":
         finally:
             os.chdir(original)
     print("OK · dominio · seguridad · CRUD sobre Empleado y Departamento"
-          " · proyectos y horas · inicio de sesión y bloqueo")
+          " · proyectos y horas · historial de las APIs · inicio de sesión y bloqueo")
