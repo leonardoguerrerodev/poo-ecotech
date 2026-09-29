@@ -1,0 +1,25 @@
+name: Prueba de la apelación
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: El código es idéntico al del commit evaluado (36f94ac)
+        run: git diff --exit-code 36f94ac5b6292a9c20a2957217c5226a90ca4eb9 HEAD -- ecotech.py main.py servicios.py docs/ANALISIS_IA.md
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - run: "pip install --only-binary :all: --require-hashes -r apelacion/requisitos_prueba.txt"
+
+      - name: Prueba de cada afirmación de la corrección
+        run: python apelacion/prueba_apelacion.py
